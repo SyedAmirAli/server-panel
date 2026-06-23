@@ -70,7 +70,7 @@ async function bootstrap() {
         Logger.log(`Proxying SPA → ${target}`, "Bootstrap");
     }
 
-    const port = Number(process.env.API_PORT ?? 3000);
+    const port = Number(process.env.API_PORT ?? 4010);
     await app.listen(port);
 
     const base = `http://localhost:${port}`;
@@ -104,6 +104,7 @@ async function bootstrap() {
             "GET    /api/v1/utility/sent-messages",
             "GET    /api/v1/utility/mailboxes",
             "GET    /api/v1/utility/mail-messages",
+            "GET    /api/v1/utility/dashboard",
             "GET    /api/v1/health",
         ],
     });

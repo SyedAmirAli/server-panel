@@ -134,10 +134,39 @@ export interface MailMessageDetailView extends MailMessageView {
 }
 
 /* ─── Dashboard stats ────────────────────────────────────────── */
+export type DashboardPresetPeriod = "today" | "week" | "month" | "year" | "all";
+export type DashboardPeriod = DashboardPresetPeriod | "custom";
+
+export interface DashboardDateRange {
+  period: DashboardPeriod;
+  offset: number;
+  from: string | null;
+  to: string;
+}
+
 export interface DashboardStats {
-  mailboxes: number;
-  activeKeys: number;
-  sentToday: number;
-  sentFailedToday: number;
-  inboxUnread: number;
+  range: DashboardDateRange;
+  /** All-time resource counts (not filtered by the selected window). */
+  inventory: {
+    totalApiKeys: number;
+    activeApiKeys: number;
+    totalMailboxes: number;
+    activeMailboxes: number;
+    totalEmailConfigs: number;
+    activeEmailConfigs: number;
+  };
+  /** Activity within the selected date window. */
+  activity: {
+    mailMessages: number;
+    sentMessages: number;
+    sent: number;
+    sentFailed: number;
+    queued: number;
+    auditLogs: number;
+  };
+  /** Live counters (current state, not window-scoped). */
+  snapshot: {
+    inboxUnread: number;
+    sentQueued: number;
+  };
 }

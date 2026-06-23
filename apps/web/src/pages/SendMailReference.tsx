@@ -89,7 +89,7 @@ const res = await fetch(\`\${API_BASE}/mails/send\`, {
                 shell first.
             </>
         ),
-        code: `curl -X POST "http://localhost:3000/api/v1/mails/send" \\
+        code: `curl -X POST "http://localhost:4010/api/v1/mails/send" \\
   -H "Authorization: Bearer $APPSZONE_MAIL_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

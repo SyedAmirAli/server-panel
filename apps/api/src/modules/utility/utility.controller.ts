@@ -4,6 +4,7 @@ import { AdminGuard } from "@/auth/admin.guard";
 import { BasicQueryParams } from "@/common/prisma-query-builder.service";
 import { UtilityService } from "./utility.service";
 import HelperClass from "@/common/HelperClass";
+import { DashboardQueryDto } from "./dto/dashboard-query.dto";
 
 @ApiTags("Utility")
 @ApiBearerAuth("admin")
@@ -50,5 +51,17 @@ export class UtilityController {
     })
     getMailMessages(@Query() params: BasicQueryParams) {
         return this.utilityService.getMailMessages(params);
+    }
+
+    @Get("dashboard")
+    @ApiOperation({
+        summary: "Dashboard aggregate stats",
+        description:
+            "Returns inventory totals (all-time), activity counts for the selected window, and live snapshots. " +
+            "Use `period` + `offset` for preset navigation (today/week/month/year/all), or `fromDate` + `toDate` " +
+            "for a custom range. All boundaries are UTC.",
+    })
+    getDashboard(@Query() query: DashboardQueryDto) {
+        return this.utilityService.getDashboard(query);
     }
 }

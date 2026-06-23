@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:3000/api/v1";
+const API_BASE = "http://localhost:4010/api/v1";
 const API_KEY = process.env.APPSZONE_MAIL_KEY; // keep this server-side
 
 async function sendEmail() {

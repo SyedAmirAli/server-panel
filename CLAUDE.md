@@ -36,6 +36,6 @@ See `.claude/plan/appszone-mail-platform.md` for the full plan and `docs/` for A
 ## Dev
 - MySQL runs natively (`appszone` / `12345678`, db `appszone_mail`).
 - `yarn workspace @appszone/web dev` (Vite :5173) + `yarn workspace @appszone/api dev`
-  (Nest :3000, serves API + proxies SPA). **Browse `http://localhost:3000`.**
+  (Nest :4010, serves API + proxies SPA). **Browse `http://localhost:4010`.**
 - `migrate:dev` needs a TTY; in non-interactive shells use `migrate diff` → write SQL →
   `migrate deploy`.

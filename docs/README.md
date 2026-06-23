@@ -9,4 +9,4 @@ Guides for integrating with the AppsZone Mail API.
 | [API response convention](./api-response-convention.md) | The `{ status, message, data }` envelope rules (mutations enveloped, GET raw, errors enveloped) |
 
 > Interactive reference (OpenAPI / Swagger UI) is served by the API at **`/swagger`**
-> (e.g. `http://localhost:3000/swagger` in local dev).
+> (e.g. `http://localhost:4010/swagger` in local dev).

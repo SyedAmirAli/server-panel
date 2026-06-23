@@ -6,7 +6,7 @@ API-key management, SMTP email configs, and the read-only observability endpoint
 
 | Environment | Base URL                                 |
 | ----------- | ---------------------------------------- |
-| Local dev   | `http://localhost:3000/api/v1`           |
+| Local dev   | `http://localhost:4010/api/v1`           |
 | Production  | `https://app.mail.appszonebd.com/api/v1` |
 
 > All routes below are written **relative to the base URL** (the global prefix `api/v1`
@@ -394,6 +394,75 @@ return the **raw paginated payload** (no envelope). Each supports `search`, `fro
 | `GET /utility/sent-messages` | `SentMessage[]` | from, to, subject, status, error                    | `createdAt`    |
 | `GET /utility/mailboxes`     | `Mailbox[]`     | address, isActive                                   | `createdAt`    |
 | `GET /utility/mail-messages` | `MailMessage[]` | from, to, subject, receivedAt, isRead               | `receivedAt`   |
+| `GET /utility/dashboard`       | `DashboardStats`| `period`, `offset`, `fromDate`, `toDate` (see below) | activity fields |
+
+### Dashboard stats
+
+`GET /utility/dashboard` returns a single JSON object (no envelope, no pagination).
+
+**Query params**
+
+| Param      | Type   | Default  | Description |
+| ---------- | ------ | -------- | ----------- |
+| `period`   | string | `month`  | `today` · `week` · `month` · `year` · `all` |
+| `offset`   | int    | `0`      | Shift preset window: `0` = current, `-1` = previous, `+1` = next. Ignored when `period=all`. |
+| `fromDate` | string | —        | Custom start `YYYY-MM-DD` (UTC). Requires `toDate`; overrides `period`. |
+| `toDate`   | string | —        | Custom end `YYYY-MM-DD` (UTC). Requires `fromDate`. |
+
+**Navigation examples**
+
+```bash
+# Current month (default)
+GET /utility/dashboard
+
+# Previous week / next week
+GET /utility/dashboard?period=week&offset=-1
+GET /utility/dashboard?period=week&offset=1
+
+# This year / all time
+GET /utility/dashboard?period=year
+GET /utility/dashboard?period=all
+
+# Custom range
+GET /utility/dashboard?fromDate=2026-06-01&toDate=2026-06-30
+```
+
+**Response**
+
+```ts
+type DashboardPeriod = "today" | "week" | "month" | "year" | "all" | "custom";
+
+interface DashboardStats {
+  range: {
+    period: DashboardPeriod;
+    offset: number;
+    from: string | null;  // ISO UTC; null when period=all
+    to: string;           // ISO UTC
+  };
+  inventory: {
+    totalApiKeys: number;
+    activeApiKeys: number;
+    totalMailboxes: number;
+    activeMailboxes: number;
+    totalEmailConfigs: number;
+    activeEmailConfigs: number;
+  };
+  activity: {
+    mailMessages: number;   // receivedAt in range
+    sentMessages: number; // createdAt in range
+    sent: number;
+    sentFailed: number;
+    queued: number;       // queued sends created in range
+    auditLogs: number;
+  };
+  snapshot: {
+    inboxUnread: number;  // current unread (live)
+    sentQueued: number;   // current queue depth (live)
+  };
+}
+```
+
+Week boundaries use **Monday–Sunday** (UTC). Month/year use calendar boundaries (UTC).
 
 ### Record shapes
 
@@ -528,7 +597,7 @@ messages straight from class-validator, e.g. `"name should not be empty"`,
 ## 9. Health check — `GET /health`
 
 Unauthenticated liveness probe. **Not** under the `api/v1` prefix — call it at the host
-root (`http://localhost:3000/health`).
+root (`http://localhost:4010/health`).
 
 ```json
 { "status": "ok", "service": "appszone-mail-api", "time": "2026-06-24T10:00:00.000Z" }

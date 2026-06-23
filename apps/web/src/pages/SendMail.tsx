@@ -1002,7 +1002,7 @@ export function SendMail() {
                                 <div>
                                     <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1">Local Dev</p>
                                     <code className="block text-xs font-mono bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-slate-700 break-all">
-                                        http://localhost:3000/api/v1
+                                        http://localhost:4010/api/v1
                                     </code>
                                 </div>
                                 <div>
@@ -1278,7 +1278,7 @@ export function SendMail() {
                                         dangerouslySetInnerHTML={{
                                             __html: `<pre class="code-block"><span class="kw">import</span> { readFile } <span class="kw">from</span> <span class="str">"node:fs/promises"</span>;
 
-<span class="kw">const</span> API_BASE = <span class="str">"http://localhost:3000/api/v1"</span>; <span class="cm">// swap for prod</span>
+<span class="kw">const</span> API_BASE = <span class="str">"http://localhost:4010/api/v1"</span>; <span class="cm">// swap for prod</span>
 <span class="kw">const</span> API_KEY  = process.env.APPSZONE_MAIL_KEY;
 
 <span class="kw">const</span> buffer = <span class="kw">await</span> <span class="fn">readFile</span>(<span class="str">"./invoice.pdf"</span>);
@@ -1366,7 +1366,7 @@ console.<span class="fn">log</span>(res.status, <span class="kw">await</span> re
                                         dangerouslySetInnerHTML={{
                                             __html: `<pre class="code-block"><span class="kw">import</span> { readFile } <span class="kw">from</span> <span class="str">"node:fs/promises"</span>;
 
-<span class="kw">const</span> API_BASE = <span class="str">"http://localhost:3000/api/v1"</span>; <span class="cm">// swap for prod</span>
+<span class="kw">const</span> API_BASE = <span class="str">"http://localhost:4010/api/v1"</span>; <span class="cm">// swap for prod</span>
 <span class="kw">const</span> API_KEY  = process.env.APPSZONE_MAIL_KEY;
 
 <span class="kw">const</span> buffer = <span class="kw">await</span> <span class="fn">readFile</span>(<span class="str">"./invoice.pdf"</span>);
@@ -1406,7 +1406,7 @@ console.<span class="fn">log</span>(res.status, <span class="kw">await</span> re
                                     <div
                                         className="w-full"
                                         dangerouslySetInnerHTML={{
-                                            __html: `<pre class="code-block"><span class="fn">curl</span> -X POST <span class="str">"http://localhost:3000/api/v1/mails/send"</span> \\
+                                            __html: `<pre class="code-block"><span class="fn">curl</span> -X POST <span class="str">"http://localhost:4010/api/v1/mails/send"</span> \\
   -H <span class="str">"Authorization: Bearer $APPSZONE_MAIL_KEY"</span> \\
   -H <span class="str">"Content-Type: application/json"</span> \\
   -d <span class="str">'{

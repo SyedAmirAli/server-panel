@@ -1,16 +1,12 @@
-# Local dev infra only: MySQL.
-# Queueing is in-app (DB-backed outbox) — no Redis/RabbitMQ.
-# Mailcow runs from its own official compose stack on the VPS (not here).
+# AppsZone Mail — MySQL + API (serves built SPA).
+# Copy .env.example → .env and set DATABASE_URL host to `mysql` for Compose.
+# Mailcow runs separately on the VPS (not in this stack).
 services:
   mysql:
     image: mysql:8.0
-    container_name: azm-mysql
+    container_name: appszone-mysql-server
     restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: "12345678"
-      MYSQL_DATABASE: appszone_mail
-      MYSQL_USER: appszone
-      MYSQL_PASSWORD: "12345678"
+    env_file: .env
     ports:
       - "3306:3306"
     volumes:
@@ -19,10 +15,24 @@ services:
     # default triggers "Unknown authentication plugin `sha256_password`").
     command: --default-authentication-plugin=mysql_native_password
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p12345678"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: appszone-mail-server
+    container_name: appszone-mail-server
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${API_PORT:-4010}:${API_PORT:-4010}"
+    depends_on:
+      mysql:
+        condition: service_healthy
 
 volumes:
   mysqldata:

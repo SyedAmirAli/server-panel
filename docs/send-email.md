@@ -8,7 +8,7 @@ Send transactional email through the AppsZone Mail API using your project API ke
 
 | Environment | Base URL                                 |
 | ----------- | ---------------------------------------- |
-| Local dev   | `http://localhost:3000/api/v1`           |
+| Local dev   | `http://localhost:4010/api/v1`           |
 | Production  | `https://app.mail.appszonebd.com/api/v1` |
 
 ---
@@ -158,7 +158,7 @@ Node 20+ has `fetch`, `FormData`, and `Blob` built in.
 ```js
 import { readFile } from "node:fs/promises";
 
-const API_BASE = "http://localhost:3000/api/v1";
+const API_BASE = "http://localhost:4010/api/v1";
 const API_KEY = process.env.APPSZONE_MAIL_KEY;
 
 const buffer = await readFile("./invoice.pdf");
@@ -185,7 +185,7 @@ console.log(res.status, await res.json());
 ## 4. cURL (quick test)
 
 ```bash
-curl -X POST "http://localhost:3000/api/v1/mails/send" \
+curl -X POST "http://localhost:4010/api/v1/mails/send" \
   -H "Authorization: Bearer $APPSZONE_MAIL_KEY" \
   -H "Content-Type: application/json" \
   -d '{

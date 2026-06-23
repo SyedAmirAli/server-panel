@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "build": "turbo run build",
+    "start": "yarn start:prod",
+    "start:prod": "yarn workspace @appszone/api start:prod",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
