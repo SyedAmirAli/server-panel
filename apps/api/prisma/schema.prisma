@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  // Dedicated shadow DB so the app user needs no global create-database grant.
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model ApiKey {
+  id          String        @id @default(cuid())
+  name        String
+  // HMAC-SHA256(secret, API_KEY_PEPPER) — indexed for O(1) lookup on /v1/send.
+  keyHash     String        @unique
+  keyPrefix   String
+  keySecret   String?       @db.Text // AES-256-GCM encrypted full key (admin retrieval)
+  isActive    Boolean       @default(true)
+  allowedFrom Json // string[] of allowed "from" addresses (MySQL has no scalar list type)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  lastUsedAt  DateTime?
+  messages    SentMessage[]
+
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+model Mailbox {
+  id           String        @id @default(cuid())
+  address      String        @unique
+  imapHost     String
+  imapUser     String
+  imapPassword String        @db.Text // AES-256-GCM encrypted at rest
+  smtpHost     String
+  smtpUser     String
+  smtpPassword String        @db.Text // AES-256-GCM encrypted at rest
+  isActive     Boolean       @default(true)
+  lastSyncUid  Int?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  messages     MailMessage[]
+
+  @@index([isActive])
+  @@map("mailboxes")
+}
+
+model MailMessage {
+  id         String   @id @default(cuid())
+  uid        Int?
+  
+  mailboxId  String
+  mailbox    Mailbox  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  
+  messageId  String   @db.VarChar(255) // RFC822 Message-ID header
+  
+  from       String
+  to         Json // string[] of recipients (MySQL has no scalar list type)
+  subject    String   @db.Text
+  snippet    String   @db.Text
+  body       String   @db.LongText
+  html       String?  @db.LongText
+  receivedAt DateTime
+  isRead     Boolean  @default(false)
+  syncedAt   DateTime @default(now())
+
+  @@unique([mailboxId, messageId])
+  @@index([mailboxId, receivedAt])
+  @@map("mail_messages")
+}
+
+model SentMessage {
+  id        String   @id @default(cuid())
+  apiKeyId  String?
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id])
+  from      String
+  to        Json // string[] of recipients (MySQL has no scalar list type)
+  cc        Json? // string[] of CC recipients
+  bcc       Json? // string[] of BCC recipients
+  subject   String   @db.Text
+  status    String   @default("queued") // queued | sent | failed
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("sent_messages")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   @db.VarChar(120) // e.g. admin.login, apikey.create, mail.send
+  actorType  String   @db.VarChar(32) @default("system") // admin | apikey | system
+  actorId    String? // admin, or ApiKey id
+  entityType String?  @db.VarChar(64) // ApiKey | SentMessage | Mailbox
+  entityId   String?
+  metadata   Json? // arbitrary context (sanitized — never secrets)
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.Text
+  createdAt  DateTime @default(now())
+  message    String?  @db.Text
+
+  @@index([action])
+  @@index([actorType, actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model EmailConfig {
+  id         String   @id @default(cuid())
+  name       String @db.VarChar(255)
+  host       String @db.VarChar(255)
+  port       Int @default(587)
+  username   String @db.VarChar(255)
+  password   String @db.VarChar(255)
+  tls        Json? // { rejectUnauthorized: boolean }
+  
+  requireTLS Boolean @default(false)
+  secure     Boolean @default(false)
+  isActive     Boolean @default(true)
+
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([name])
+  @@index([host, port])
+  
+  @@index([username])
+  @@unique([username])
+  
+  @@index([createdAt])
+
+  @@map("email_configs")
+}

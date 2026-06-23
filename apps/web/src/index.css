@@ -1,0 +1,245 @@
+@import "tailwindcss";
+
+@theme {
+    --color-brand-50: #eef0ff;
+    --color-brand-100: #dde0ff;
+    --color-brand-200: #c4c9fe;
+    --color-brand-400: #8b8ff8;
+    --color-brand-500: #5046e5;
+    --color-brand-600: #4338ca;
+    --color-brand-700: #3730a3;
+    --color-brand-800: #312e81;
+    --color-brand-900: #1e1b4b;
+
+    --color-surface: #f8f8fc;
+    --color-sidebar: #3d38d4;
+
+    --color-slate-50: #f8fafc;
+    --color-slate-100: #f1f5f9;
+    --color-slate-200: #e2e8f0;
+    --color-slate-300: #cbd5e1;
+    --color-slate-400: #94a3b8;
+    --color-slate-500: #64748b;
+    --color-slate-600: #475569;
+    --color-slate-700: #334155;
+    --color-slate-800: #1e293b;
+    --color-slate-900: #0f172a;
+
+    --color-emerald-50: #ecfdf5;
+    --color-emerald-100: #d1fae5;
+    --color-emerald-500: #10b981;
+    --color-emerald-600: #059669;
+
+    --color-amber-50: #fffbeb;
+    --color-amber-100: #fef3c7;
+    --color-amber-500: #f59e0b;
+    --color-amber-600: #d97706;
+
+    --color-red-50: #fef2f2;
+    --color-red-100: #fee2e2;
+    --color-red-500: #ef4444;
+}
+
+@layer base {
+    body {
+        font-family: "Inter", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    *:focus-visible {
+        outline: 2px solid #6366f1;
+        outline-offset: 2px;
+    }
+
+    /* ─── Custom scrollbars (medium-thin, all scrollable surfaces) ─── */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgb(203 213 225 / 0.9) transparent;
+    }
+
+    *::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+
+    *::-webkit-scrollbar-track {
+        background: transparent;
+        margin: 4px 0;
+    }
+
+    *::-webkit-scrollbar-thumb {
+        background-color: rgb(203 213 225 / 0.95);
+        border-radius: 9999px;
+        border: 1px solid transparent;
+        background-clip: padding-box;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+        background-color: rgb(148 163 184 / 0.95);
+    }
+
+    *::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+}
+
+@layer utilities {
+    /* Vertical scroll only — long tokens/JSON wrap instead of horizontal scroll */
+    .scroll-area {
+        overflow-y: auto;
+        overflow-x: hidden;
+        word-break: break-all;
+        overflow-wrap: anywhere;
+    }
+
+    .scroll-area-pre {
+        white-space: pre-wrap;
+    }
+
+    .break-anywhere {
+        word-break: break-all;
+        overflow-wrap: anywhere;
+    }
+}
+
+.prose-html {
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
+.prose-html h1,
+.prose-html h2,
+.prose-html h3 {
+    font-weight: 600;
+    color: #111827;
+    margin: 0.75rem 0 0.5rem;
+    word-break: break-word;
+}
+
+.prose-html h1 {
+    font-size: 1.125rem;
+}
+.prose-html h2 {
+    font-size: 1rem;
+}
+.prose-html h3 {
+    font-size: 0.875rem;
+}
+
+.prose-html p {
+    margin: 0.5rem 0;
+}
+
+.prose-html a {
+    color: #4f46e5;
+    text-decoration: underline;
+    word-break: break-all;
+}
+
+.prose-html ul,
+.prose-html ol {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+}
+
+.prose-html ul {
+    list-style: disc;
+}
+.prose-html ol {
+    list-style: decimal;
+}
+
+/* Markdown code blocks inside scroll areas */
+.markdown-body pre,
+.markdown-body code {
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+/* Sidebar link base */
+.nav-link {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150;
+}
+.nav-link-idle {
+    @apply text-brand-200 hover:text-white hover:bg-white/10;
+}
+.nav-link-active {
+    @apply bg-white/15 text-white ring-1 ring-white/20;
+}
+
+/* Form label */
+.field-label {
+    @apply block text-sm font-medium text-slate-700 mb-1.5;
+}
+.field-input {
+    @apply w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-sm
+         placeholder:text-slate-400
+         focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500
+         transition-all duration-150;
+}
+
+/* Tag pill */
+.tag {
+    @apply inline-flex items-center gap-1 bg-brand-100 text-brand-700 text-xs font-medium px-2 py-0.5 rounded-full;
+}
+
+/* Badge */
+.badge-green {
+    @apply inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-100;
+}
+.badge-amber {
+    @apply inline-flex items-center gap-1 bg-amber-50  text-amber-600  text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-100;
+}
+.badge-red {
+    @apply inline-flex items-center gap-1 bg-red-50    text-red-500    text-xs font-semibold px-2.5 py-1 rounded-full border border-red-100;
+}
+.badge-blue {
+    @apply inline-flex items-center gap-1 bg-brand-50  text-brand-600  text-xs font-semibold px-2.5 py-1 rounded-full border border-brand-100;
+}
+
+/* Code block */
+.code-block {
+    @apply bg-slate-900 text-slate-100 text-xs font-mono p-4 rounded-xl overflow-x-auto leading-relaxed;
+}
+.code-block .kw {
+    @apply text-brand-400;
+}
+.code-block .str {
+    @apply text-emerald-400;
+}
+.code-block .cm {
+    @apply text-slate-500;
+}
+.code-block .fn {
+    @apply text-amber-400;
+}
+.code-block .num {
+    @apply text-red-400;
+}
+
+/* FAQ item */
+details > summary {
+    list-style: none;
+}
+details > summary::-webkit-details-marker {
+    display: none;
+}
+details[open] .faq-chevron {
+    transform: rotate(180deg);
+}
+
+/* Scrollbar thin */
+.thin-scroll::-webkit-scrollbar {
+    width: 4px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+    @apply bg-brand-700 rounded-full;
+}
+
+button {
+    cursor: pointer;
+}

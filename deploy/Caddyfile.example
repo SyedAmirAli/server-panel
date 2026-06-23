@@ -1,0 +1,13 @@
+# The Nest server serves both the API and the static SPA (single origin), so one
+# host fronts the whole app. Mailcow stays on its own host.
+
+# App + API — one Nest process serves the SPA and /admin, /v1, /health.
+app.mail.appszonebd.com {
+    reverse_proxy 127.0.0.1:3000
+}
+
+# Mailcow UI / autoconfig (bind Mailcow's HTTP_BIND/HTTPS_BIND to 127.0.0.1:8080/8443).
+# Mail transport ports (25/465/587/993) are handled by Mailcow directly, not Caddy.
+mail.appszonebd.com {
+    reverse_proxy 127.0.0.1:8080
+}

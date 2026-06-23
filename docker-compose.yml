@@ -1,0 +1,28 @@
+# Local dev infra only: MySQL.
+# Queueing is in-app (DB-backed outbox) — no Redis/RabbitMQ.
+# Mailcow runs from its own official compose stack on the VPS (not here).
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: azm-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "12345678"
+      MYSQL_DATABASE: appszone_mail
+      MYSQL_USER: appszone
+      MYSQL_PASSWORD: "12345678"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+    # mysql_native_password keeps Prisma's MySQL driver happy (8.4's SHA-256
+    # default triggers "Unknown authentication plugin `sha256_password`").
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p12345678"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysqldata:
