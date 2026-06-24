@@ -54,7 +54,7 @@ function mountProdSpa(http: Express): void {
             maxAge: "1y",
             immutable: true,
             fallthrough: false,
-        }),
+        })
     );
 
     http.use((req: Request, res: Response, next: NextFunction) => {
@@ -91,7 +91,7 @@ async function bootstrap() {
     // class-validator DTOs: transform payloads to DTO instances and strip
     // unknown properties across every endpoint.
     app.useGlobalPipes(
-        new ValidationPipe({ transform: true, whitelist: true, transformOptions: { enableImplicitConversion: true } }),
+        new ValidationPipe({ transform: true, whitelist: true, transformOptions: { enableImplicitConversion: true } })
     );
 
     // Standard response envelope (mutating methods) + error envelope.
@@ -130,7 +130,8 @@ async function bootstrap() {
     }
 
     const port = Number(process.env.API_PORT ?? 4010);
-    await app.listen(port);
+    const host = process.env.API_HOST ?? "0.0.0.0";
+    await app.listen(port, host);
 
     const base = `http://localhost:${port}`;
     const corsOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(",");
