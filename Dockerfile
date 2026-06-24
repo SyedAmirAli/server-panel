@@ -2,6 +2,9 @@
 
 FROM node:24-alpine AS build
 
+# Prisma engines need OpenSSL on Alpine (migrate + generate).
+RUN apk add --no-cache openssl libc6-compat
+
 WORKDIR /app
 
 # Install deps first (layer cache); no --frozen-lockfile.
@@ -14,12 +17,15 @@ RUN yarn install
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 COPY apps/web apps/web
+COPY docs docs
 
 # Same-origin SPA: VITE_API_BASE_URL defaults to empty in the web app.
 RUN yarn build
 
 # ─── Production image ─────────────────────────────────────────────
 FROM node:24-alpine AS production
+
+RUN apk add --no-cache openssl libc6-compat
 
 WORKDIR /app
 

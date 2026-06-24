@@ -9,6 +9,11 @@ export class HttpLoggerMiddleware implements NestMiddleware {
     private readonly logger = new Logger("HTTP");
 
     use(req: Request, res: Response, next: NextFunction): void {
+        // SPA/static in production is served before Nest — only log API + swagger traffic.
+        if (process.env.NODE_ENV === "production" && !req.originalUrl.startsWith("/api") && !req.originalUrl.startsWith("/swagger")) {
+            return next();
+        }
+
         const { method, originalUrl } = req;
         const start = Date.now();
 

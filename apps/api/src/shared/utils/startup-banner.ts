@@ -20,6 +20,7 @@ export interface StartupBannerOptions {
     name: string;
     version: string;
     env: string;
+    app: string;
     url: string;
     docs: string;
     health: string;
@@ -41,6 +42,7 @@ export function printStartupBanner(opts: StartupBannerOptions): void {
         "",
         `  ${col(c.bold + c.white, opts.name)}  ${col(c.dim, "v" + opts.version)}  ${col(envColor, opts.env)}`,
         "",
+        `  ${col(c.dim, "App    ")} ${col(c.cyan, opts.app)}`,
         `  ${col(c.dim, "API    ")} ${col(c.cyan, opts.url)}`,
         `  ${col(c.dim, "Docs   ")} ${col(c.cyan, opts.docs)}`,
         `  ${col(c.dim, "Health ")} ${col(c.cyan, opts.health)}`,

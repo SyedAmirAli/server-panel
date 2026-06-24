@@ -1,29 +1,32 @@
 {
-  "name": "appszone-mail",
-  "version": "0.1.0",
-  "private": true,
-  "packageManager": "yarn@1.22.22",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "build": "turbo run build",
-    "start": "yarn start:prod",
-    "start:prod": "yarn workspace @appszone/api start:prod",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "db:generate": "yarn workspace @appszone/api db:generate",
-    "db:push": "yarn workspace @appszone/api db:push",
-    "db:pull": "yarn workspace @appszone/api db:pull",
-    "migrate:dev": "yarn workspace @appszone/api migrate:dev",
-    "migrate:deploy": "yarn workspace @appszone/api migrate:deploy"
-  },
-  "devDependencies": {
-    "turbo": "^2.0.0",
-    "typescript": "^5.5.0"
-  }
+    "name": "appszone-mail",
+    "version": "0.1.0",
+    "private": true,
+    "packageManager": "yarn@1.22.22",
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "build": "turbo run build",
+        "start": "yarn start:prod",
+        "start:prod": "yarn workspace @appszone/api start:prod",
+        "dev": "turbo run dev",
+        "lint": "turbo run lint",
+        "typecheck": "turbo run typecheck",
+        "docker:build": "docker compose build --no-cache",
+        "docker:up": "docker compose up -d",
+        "docker:down": "docker compose down",
+        "docker:db:push": "docker compose exec appszone-mail-server yarn db:push",
+        "docker:db:migrate": "docker compose exec appszone-mail-server yarn migrate:deploy",
+        "db:generate": "yarn workspace @appszone/api db:generate",
+        "db:push": "yarn workspace @appszone/api db:push",
+        "db:pull": "yarn workspace @appszone/api db:pull",
+        "migrate:dev": "yarn workspace @appszone/api migrate:dev",
+        "migrate:deploy": "yarn workspace @appszone/api migrate:deploy"
+    },
+    "devDependencies": {
+        "turbo": "^2.0.0",
+        "typescript": "^5.5.0"
+    }
 }

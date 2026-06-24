@@ -26,6 +26,7 @@ export const router = createBrowserRouter([
             { path: "sent-messages", element: <SentMessages /> },
             { path: "mailboxes", element: <Mailboxes /> },
             { path: "docs", element: <ApiDocs /> },
+            { path: "docs/:docId", element: <ApiDocs /> },
             // legacy alias
             { path: "settings/mailboxes", element: <Mailboxes /> },
         ],

@@ -1,8 +1,10 @@
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
-import { json, urlencoded } from "express";
+import express, { json, urlencoded, type Express, type NextFunction, type Request, type Response } from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { AppModule } from "@/app.module";
 import { ResponseEnvelopeInterceptor } from "@/common/response-envelope.interceptor";
 import { AllExceptionsFilter } from "@/common/all-exceptions.filter";
@@ -19,12 +21,69 @@ const isProd = process.env.NODE_ENV === "production";
 const API_PREFIXES = ["/api", "/swagger"];
 const isApiPath = (path: string) => API_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 
+function isSpaDocumentRequest(method: string, path: string): boolean {
+    if (method !== "GET" && method !== "HEAD") return false;
+    if (isApiPath(path) || path.startsWith("/swagger")) return false;
+    return true;
+}
+
+/** Prod SPA: in-memory index.html + long-cached hashed assets (mounted before API middleware). */
+function mountProdSpa(http: Express): void {
+    const spaRoot = join(__dirname, "..", "..", "web", "dist");
+    const indexPath = join(spaRoot, "index.html");
+
+    if (!existsSync(indexPath)) {
+        Logger.warn(`SPA dist not found at ${spaRoot}`, "Bootstrap");
+        return;
+    }
+
+    const indexHtml = readFileSync(indexPath, "utf8");
+
+    const sendSpa = (_req: Request, res: Response) => {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache");
+        res.send(indexHtml);
+    };
+
+    http.get("/api/v1", (_req: Request, res: Response) => res.redirect(302, "/"));
+    http.get("/", sendSpa);
+
+    http.use(
+        "/assets",
+        express.static(join(spaRoot, "assets"), {
+            maxAge: "1y",
+            immutable: true,
+            fallthrough: false,
+        }),
+    );
+
+    http.use((req: Request, res: Response, next: NextFunction) => {
+        if (!isSpaDocumentRequest(req.method, req.path)) return next();
+        if (res.headersSent) return next();
+        sendSpa(req, res);
+    });
+
+    Logger.log(`Serving SPA → ${spaRoot}`, "Bootstrap");
+}
+
 async function bootstrap() {
     // Disable the default 100kb body parser; multipart is handled by multer,
     // and JSON bodies (EMBED_HTML up to ~1MB) need a larger limit.
     const app = await NestFactory.create(AppModule, { bodyParser: false });
-    app.use(json({ limit: "5mb" }));
-    app.use(urlencoded({ extended: true, limit: "5mb" }));
+    const http = app.getHttpAdapter().getInstance() as Express;
+
+    if (isProd) {
+        mountProdSpa(http);
+    }
+
+    app.use((req: Request, res: Response, next: NextFunction) => {
+        if (isSpaDocumentRequest(req.method, req.path)) return next();
+        json({ limit: "5mb" })(req, res, next);
+    });
+    app.use((req: Request, res: Response, next: NextFunction) => {
+        if (isSpaDocumentRequest(req.method, req.path)) return next();
+        urlencoded({ extended: true, limit: "5mb" })(req, res, next);
+    });
 
     // Global prefix: every controller route is served under /api/v1.
     app.setGlobalPrefix("api/v1");
@@ -81,6 +140,7 @@ async function bootstrap() {
         name: "AppsZone Mail",
         version: pkg.version,
         env: process.env.NODE_ENV ?? "development",
+        app: `${base}/`,
         url: `${base}/api/v1`,
         docs: `${base}/swagger`,
         health: `${base}/api/v1/health`,
