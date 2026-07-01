@@ -12,8 +12,62 @@ for the full plan and phasing.
 apps/api/        NestJS API + in-app workers (Prisma + MySQL)
 apps/web/        Vite + React + TS static SPA (Tailwind v4, React Router v6)
 packages/shared/ Shared Zod schemas + TypeScript types
-docker-compose.yml  Local dev: MySQL
+docker-compose.yml  Production app container (external MySQL)
 ```
+
+## Docker (external database)
+
+The image uses an **external MySQL** database. Pass `DATABASE_URL` at runtime, or set
+`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT`, and `MYSQL_DATABASE` and the
+entrypoint will build the URL for you.
+
+### Build
+
+```bash
+docker build -t appszone-mail-server .
+# or
+yarn docker:build
+```
+
+### Run — remote database
+
+```bash
+docker run -d \
+  --name appszone-mail-server \
+  --restart unless-stopped \
+  -p 4010:4010 \
+  -e DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@YOUR_DB_HOST:3306/YOUR_DATABASE" \
+  appszone-mail-server
+```
+
+### Run — database on the same host (Linux)
+
+Containers cannot reach the host via `localhost`. Use the host gateway:
+
+```bash
+docker run -d \
+  --name appszone-mail-server \
+  --restart unless-stopped \
+  --add-host=host.docker.internal:host-gateway \
+  -p 4010:4010 \
+  -e DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@host.docker.internal:3306/YOUR_DATABASE" \
+  appszone-mail-server
+```
+
+URL-encode special characters in passwords (e.g. `@` → `%40`).
+
+### Compose
+
+Set `DATABASE_URL` in your shell or a `.env` file next to `docker-compose.yml`, then:
+
+```bash
+export DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@YOUR_DB_HOST:3306/YOUR_DATABASE"
+yarn docker:up
+```
+
+Override production secrets (`JWT_SECRET`, `ENCRYPTION_KEY`, `API_KEY_PEPPER`,
+`ADMIN_PASSWORD`) via `-e` or compose `environment:` instead of relying on Dockerfile
+defaults.
 
 ## Local dev quick start
 
@@ -25,8 +79,8 @@ yarn install
 cp .env.example apps/api/.env
 cp .env.example apps/web/.env   # VITE_API_BASE_URL is the only var web reads
 
-# 3. infra (MySQL)
-yarn docker:up
+# 3. database (native MySQL on the host, or any reachable instance)
+#    configure DATABASE_URL in apps/api/.env
 
 # 4. build (shared + prisma generate + api + web) — or run dev steps below
 yarn build
@@ -88,3 +142,30 @@ Prisma, Vite SPA with router/auth shell/login modal, shared Zod schemas, dev inf
 Mailcow + DNS + VPS provisioning are operational steps done on the server (see plan).
 
 Next: Phase 2 — admin login endpoint, AdminGuard, and wiring the SPA auth flow end to end.
+
+```sql
+CREATE DATABASE test_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER 'test_user'@'localhost' IDENTIFIED BY 'test_123456'; CREATE USER 'test_user'@'%' IDENTIFIED BY 'test_123456'; GRANT ALL PRIVILEGES ON test_db.* TO 'test_user'@'localhost'; GRANT ALL PRIVILEGES ON test_db.* TO 'test_user'@'%'; FLUSH PRIVILEGES;
+```
+
+```sql
+CREATE DATABASE test_toast CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER 'test_toast'@'localhost' IDENTIFIED BY 'test_123456'; CREATE USER 'test_toast'@'%' IDENTIFIED BY 'test_123456'; GRANT ALL PRIVILEGES ON test_db.* TO 'test_toast'@'localhost'; GRANT ALL PRIVILEGES ON test_db.* TO 'test_toast'@'%'; FLUSH PRIVILEGES;
+```
+
+```sql
+CREATE DATABASE mail_appszonemail_shadow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; ALTER USER 'mail_appszonemail'@'localhost' IDENTIFIED BY 'Siyamcse@30'; ALTER USER 'mail_appszonemail'@'%' IDENTIFIED BY 'Siyamcse@30'; GRANT ALL PRIVILEGES ON mail_appszonemail_shadow.* TO 'mail_appszonemail'@'localhost'; GRANT ALL PRIVILEGES ON mail_appszonemail_shadow.* TO 'mail_appszonemail'@'%'; FLUSH PRIVILEGES;
+```
+
+docker rm -f appszone-mail-server 2>/dev/null || true
+
+docker run --name appszone-mail-server \
+ --restart unless-stopped \
+ -p 4010:4010 \
+ -e DATABASE_URL="mysql://root:12345678@localhost:3306/apz_mailserver" \
+ appszone-mail-server
+
+docker run --name appszone-mail-server \
+ --restart unless-stopped \
+ -p 4010:4010 \
+ -e DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail" \
+ -e SHADOW_DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail_shadow" \
+ appszone-mail-server

@@ -29,3 +29,5 @@ mailcow-dockerized/
 *.zip
 *.tar
 *.tar.gz
+mailserver.docker-compose.yml
+mailserver.env

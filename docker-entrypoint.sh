@@ -7,6 +7,15 @@ prisma() {
     yarn workspace @appszone/api prisma "$@"
 }
 
+build_database_urls() {
+    if [ -z "$DATABASE_URL" ]; then
+        export DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}"
+    fi
+    if [ -z "$SHADOW_DATABASE_URL" ]; then
+        export SHADOW_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}_shadow"
+    fi
+}
+
 wait_for_db() {
     echo "==> Waiting for database..."
     attempt=0
@@ -22,7 +31,7 @@ SQL
         echo "    attempt ${attempt}/30..."
         sleep 2
     done
-    echo "ERROR: database not reachable (check DATABASE_URL uses host 'mysql' in compose)" >&2
+    echo "ERROR: database not reachable (check DATABASE_URL / MYSQL_* host, port, and credentials)" >&2
     exit 1
 }
 
@@ -78,5 +87,6 @@ sync_db() {
     echo "==> Database schema sync complete."
 }
 
+build_database_urls
 sync_db
 exec "$@"

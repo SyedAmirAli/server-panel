@@ -22,5 +22,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             theme="light"
             toastClassName="!rounded-xl !shadow-lg !text-sm !font-medium"
         />
-    </React.StrictMode>
+    </React.StrictMode>,
 );
