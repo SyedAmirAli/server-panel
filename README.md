@@ -169,3 +169,20 @@ docker run --name appszone-mail-server \
  -e DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail" \
  -e SHADOW_DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail_shadow" \
  appszone-mail-server
+
+```sql
+CREATE DATABASE IF NOT EXISTS appszone_lms
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'appszone_lms'@'localhost'
+IDENTIFIED BY 'appszone_lms987';
+
+CREATE USER IF NOT EXISTS 'appszone_lms'@'%'
+IDENTIFIED BY 'appszone_lms987';
+
+GRANT ALL PRIVILEGES ON appszone_lms.* TO 'appszone_lms'@'localhost';
+GRANT ALL PRIVILEGES ON appszone_lms.* TO 'appszone_lms'@'%';
+
+FLUSH PRIVILEGES;
+```
