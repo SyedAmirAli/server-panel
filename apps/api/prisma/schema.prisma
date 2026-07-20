@@ -130,8 +130,77 @@ model EmailConfig {
   
   @@index([username])
   @@unique([username])
-  
+
   @@index([createdAt])
 
   @@map("email_configs")
+}
+
+model Bucket {
+  id             String          @id @default(cuid())
+  // 12-char public identifier (UPPER + digits), sent by API clients as `bucketId`.
+  publicId       String          @unique @db.VarChar(12)
+  name           String
+  provider       String          @default("s3") // s3 | r2 | minio | other
+  endpoint       String? // custom S3 endpoint (R2/MinIO); null = AWS
+  region         String? // e.g. us-east-1 / auto
+  bucketName     String // the real S3 bucket name at the provider
+  forcePathStyle Boolean         @default(true)
+  accessKeyEnc   String          @db.Text // AES-256-GCM encrypted access key id
+  secretKeyEnc   String          @db.Text // AES-256-GCM encrypted secret access key
+  publicBaseUrl  String? // CDN/custom domain for public objects (no trailing slash)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  objects        StorageObject[]
+
+  @@index([isActive])
+  @@map("buckets")
+}
+
+model StorageApiKey {
+  id             String   @id @default(cuid())
+  name           String
+  // HMAC-SHA256(secret, API_KEY_PEPPER) — indexed for O(1) lookup on /storage/*.
+  keyHash        String   @unique
+  keyPrefix      String
+  keySecret      String?  @db.Text // AES-256-GCM encrypted full key (admin retrieval)
+  isActive       Boolean  @default(true)
+  allowedBuckets Json // string[] of bucket publicIds (empty = all buckets)
+  defaultBucketId String? // bucket publicId used when a request omits bucketId
+  allowedOrigins Json // string[] of allowed request origins/domains (empty = all)
+  allowedIps     Json // string[] of allowed client IPs/CIDRs (empty = all)
+  expiresAt      DateTime? // null = never expires
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastUsedAt     DateTime?
+
+  @@index([isActive])
+  @@map("storage_api_keys")
+}
+
+model StorageObject {
+  id            String   @id @default(cuid())
+  bucketId      String
+  bucket        Bucket   @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  key           String   @db.VarChar(512) // full object key incl. prefix (indexed → MySQL 3072-byte limit)
+  prefix        String?  @db.VarChar(255) // folder path (no leading/trailing slash)
+  originalName  String   @db.VarChar(512)
+  size          Int
+  contentType   String   @db.VarChar(255)
+  etag          String?  @db.VarChar(255)
+  isPrivate     Boolean  @default(true)
+  convertedWebp Boolean  @default(false)
+  compressed    Boolean  @default(false)
+  quality       Int?
+  uploadedByType String  @default("apikey") // admin | apikey
+  uploadedById  String?
+  metadata      Json? // arbitrary sanitized metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([bucketId, key])
+  @@index([bucketId, prefix])
+  @@index([createdAt])
+  @@map("storage_objects")
 }

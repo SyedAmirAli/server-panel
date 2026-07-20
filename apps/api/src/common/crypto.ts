@@ -12,6 +12,27 @@ export function generateApiKey(): { secret: string; prefix: string } {
   return { secret, prefix: secret.slice(0, KEY_PREFIX.length + 6) };
 }
 
+const STORAGE_KEY_PREFIX = "azs_live_";
+
+/** Generate a storage API key (distinct `azs_live_` prefix) + short display prefix. */
+export function generateStorageKey(): { secret: string; prefix: string } {
+  const random = randomBytes(24).toString("base64url");
+  const secret = `${STORAGE_KEY_PREFIX}${random}`;
+  return { secret, prefix: secret.slice(0, STORAGE_KEY_PREFIX.length + 6) };
+}
+
+const PUBLIC_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+/** Generate a 12-char public bucket id (uppercase letters + digits). Unbiased sampling. */
+export function generateBucketPublicId(length = 12): string {
+  const bytes = randomBytes(length);
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += PUBLIC_ID_ALPHABET[bytes[i] % PUBLIC_ID_ALPHABET.length];
+  }
+  return out;
+}
+
 /**
  * Deterministic keyed hash for indexed lookup on every /v1/send request.
  * HMAC-SHA256 (not argon2): keys are high-entropy, so a fast keyed hash is

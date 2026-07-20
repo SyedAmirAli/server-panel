@@ -19,7 +19,7 @@ import { SecretValue } from "@/components/ui/SecretValue";
 
 function fetcher(p: { page: number; limit: number; search: string }) {
     return api<PaginatedResult<EmailConfigView>>(
-        `/admin/email-configs?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`
+        `/admin/email-configs?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`,
     );
 }
 
@@ -285,7 +285,9 @@ export function EmailConfigs() {
                                                 disabled={busyToggleId === cfg.id}
                                             />
                                         </td>
-                                        <td className="px-4 py-3 text-gray-500">{fmtDate(cfg.updatedAt)}</td>
+                                        <td className="px-4 py-3 text-gray-500 text-nowrap">
+                                            {fmtDate(cfg.updatedAt)}
+                                        </td>
                                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-end gap-0.5">
                                                 <ActionBtn

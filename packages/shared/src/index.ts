@@ -73,6 +73,149 @@ export interface ApiKeySecretView extends ApiKeyView {
   secret: string;
 }
 
+/* ─── Storage: buckets ───────────────────────────────────────── */
+export const STORAGE_PROVIDERS = ["s3", "r2", "minio", "other"] as const;
+export type StorageProvider = (typeof STORAGE_PROVIDERS)[number];
+
+export interface CreateBucketDto {
+  name: string;
+  provider: StorageProvider;
+  endpoint?: string;
+  region?: string;
+  bucketName: string;
+  forcePathStyle?: boolean;
+  accessKeyId: string;
+  secretAccessKey: string;
+  publicBaseUrl?: string;
+}
+
+/** All fields optional; secret creds only re-encrypted when provided. */
+export type UpdateBucketDto = Partial<CreateBucketDto>;
+
+export interface BucketView {
+  id: string;
+  publicId: string;
+  name: string;
+  provider: StorageProvider;
+  endpoint: string | null;
+  region: string | null;
+  bucketName: string;
+  forcePathStyle: boolean;
+  publicBaseUrl: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BucketStats {
+  publicId: string;
+  objectCount: number;
+  totalSize: number;
+  /** Whether stats were fully enumerated or capped by a page limit. */
+  truncated: boolean;
+}
+
+/* ─── Storage: API keys ──────────────────────────────────────── */
+export interface CreateStorageKeyDto {
+  name: string;
+  /** Bucket publicIds this key may use. Empty = all buckets. */
+  allowedBuckets?: string[];
+  /** Bucket publicId used when a request omits bucketId. Must be in allowedBuckets (if set). */
+  defaultBucketId?: string | null;
+  /** Allowed request origins/domains. Empty = any. */
+  allowedOrigins?: string[];
+  /** Allowed client IPs/CIDRs. Empty = any. */
+  allowedIps?: string[];
+  /** ISO date; null/omitted = never expires. */
+  expiresAt?: string | null;
+}
+
+export type UpdateStorageKeyDto = Partial<CreateStorageKeyDto>;
+
+export interface StorageKeyView {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  secret: string | null;
+  isActive: boolean;
+  allowedBuckets: string[];
+  defaultBucketId: string | null;
+  allowedOrigins: string[];
+  allowedIps: string[];
+  expiresAt: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface StorageKeySecretView extends StorageKeyView {
+  secret: string;
+}
+
+/* ─── Storage: objects ───────────────────────────────────────── */
+export interface StorageObjectView {
+  id: string;
+  bucketId: string;
+  key: string;
+  prefix: string | null;
+  originalName: string;
+  size: number;
+  contentType: string;
+  etag: string | null;
+  isPrivate: boolean;
+  convertedWebp: boolean;
+  compressed: boolean;
+  quality: number | null;
+  createdAt: string;
+}
+
+/** A single entry returned when browsing a bucket live (folder or file). */
+export interface StorageListEntry {
+  type: "folder" | "file";
+  /** Full key for files; folder prefix (ending in /) for folders. */
+  key: string;
+  /** Display name (last path segment). */
+  name: string;
+  size?: number;
+  lastModified?: string;
+  etag?: string;
+}
+
+export interface StorageListResult {
+  prefix: string;
+  entries: StorageListEntry[];
+  /** Continuation token for the next page (live listings), if any. */
+  nextToken: string | null;
+}
+
+export interface UploadResult {
+  key: string;
+  bucketId: string;
+  /** Primary URL: custom/CDN domain for public objects, presigned URL for private. */
+  url: string;
+  /** Provider endpoint URL (e.g. Cloudflare account URL). Null for private objects. */
+  endpointUrl: string | null;
+  /** Present only for private objects (presigned, expiring). */
+  presigned: boolean;
+  expiresIn: number | null;
+  object: StorageObjectView;
+}
+
+/* ─── Storage: ZIP jobs ──────────────────────────────────────── */
+export type ZipJobStatus = "pending" | "processing" | "ready" | "error" | "cancelled";
+
+export interface ZipJobView {
+  id: string;
+  bucketId: string;
+  prefix: string | null;
+  status: ZipJobStatus;
+  totalBytes: number;
+  processedBytes: number;
+  totalFiles: number;
+  processedFiles: number;
+  error: string | null;
+  createdAt: string;
+}
+
 /* ─── Email configs (SMTP) ───────────────────────────────────── */
 export interface EmailConfigTlsOptions {
   rejectUnauthorized?: boolean;

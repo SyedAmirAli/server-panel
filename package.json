@@ -23,7 +23,11 @@
         "db:push": "yarn workspace @appszone/api db:push",
         "db:pull": "yarn workspace @appszone/api db:pull",
         "migrate:dev": "yarn workspace @appszone/api migrate:dev",
-        "migrate:deploy": "yarn workspace @appszone/api migrate:deploy"
+        "migrate:deploy": "yarn workspace @appszone/api migrate:deploy",
+        "api:dev": "yarn workspace @appszone/api dev",
+        "api:prod": "yarn workspace @appszone/api start:prod",
+        "web:dev": "yarn workspace @appszone/web dev",
+        "web:prod": "yarn workspace @appszone/web start:prod"
     },
     "devDependencies": {
         "turbo": "^2.0.0",

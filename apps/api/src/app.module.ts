@@ -6,6 +6,7 @@ import { AuthModule } from "@/auth/auth.module";
 import { ApiKeysModule } from "@/modules/api-keys/api-keys.module";
 import { MailsModule } from "@/modules/mails/mails.module";
 import { EmailConfigsModule } from "@/modules/email-configs/email-configs.module";
+import { StorageModule } from "@/modules/storage/storage.module";
 import { HealthController } from "@/health.controller";
 import { UtilityModule } from './modules/utility/utility.module';
 
@@ -17,6 +18,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     ApiKeysModule,
     MailsModule,
     EmailConfigsModule,
+    StorageModule,
     UtilityModule,
     // Phase 2+: AuthModule, KeysModule, MailModule, AdminModule, QueueModule
   ],

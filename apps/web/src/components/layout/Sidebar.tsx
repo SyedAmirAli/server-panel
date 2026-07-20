@@ -8,6 +8,8 @@ import {
     ScrollText,
     CheckCheck,
     HardDrive,
+    Database,
+    KeyRound,
     BookOpen,
     LogOut,
     type LucideIcon,
@@ -30,6 +32,11 @@ const mailItems: NavItemDef[] = [
 const adminItems: NavItemDef[] = [
     { to: "/keys", label: "API Keys", icon: Key },
     { to: "/email-configs", label: "Email Configs", icon: Server },
+];
+
+const storageItems: NavItemDef[] = [
+    { to: "/storage", label: "Buckets", icon: Database, end: true },
+    { to: "/storage/keys", label: "Storage Keys", icon: KeyRound },
 ];
 
 const logItems: NavItemDef[] = [
@@ -95,6 +102,7 @@ export function Sidebar() {
             <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
                 <NavSection label="Mail" items={mailItems} />
                 <NavSection label="Admin" items={adminItems} />
+                <NavSection label="Storage" items={storageItems} />
                 <NavSection label="Logs" items={logItems} />
                 <NavSection label="Docs" items={[{ to: "/docs", label: "API Docs", icon: BookOpen }]} />
             </nav>

@@ -27,7 +27,7 @@ interface MailboxRow {
 
 function fetcher(p: { page: number; limit: number; search: string }) {
     return api<PaginatedResult<MailboxRow>>(
-        `/utility/mailboxes?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`
+        `/utility/mailboxes?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`,
     );
 }
 
@@ -106,11 +106,11 @@ export function Mailboxes() {
                                         </td>
                                         <td className="px-4 py-3 text-gray-500">
                                             {mb.lastSyncUid !== null ? (
-                                                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs">
+                                                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-nowrap">
                                                     #{mb.lastSyncUid}
                                                 </code>
                                             ) : (
-                                                <span className="text-gray-400 text-xs">Not synced</span>
+                                                <span className="text-gray-400 text-xs text-nowrap">Not synced</span>
                                             )}
                                         </td>
                                         <td className="px-4 py-3 text-xs text-gray-500">{fmtDate(mb.createdAt)}</td>

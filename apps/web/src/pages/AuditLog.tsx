@@ -33,7 +33,7 @@ interface AuditLogEntry {
 
 function fetcher(p: { page: number; limit: number; search: string }) {
     return api<PaginatedResult<AuditLogEntry>>(
-        `/utility/audit-log?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`
+        `/utility/audit-log?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`,
     );
 }
 
@@ -123,20 +123,23 @@ export function AuditLog() {
                                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                             <span className="text-gray-700">{entry.actorType}</span>
                                             {entry.actorId && (
-                                                <div className="mt-1 max-w-[140px]">
+                                                <div className="mt-1 max-w-35">
                                                     <SecretValue value={entry.actorId} variant="table" />
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="px-4 py-3 text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                        <td
+                                            className="px-4 py-3 text-gray-500 text-nowrap"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
                                             {entry.entityType ?? "—"}
                                             {entry.entityId && (
-                                                <div className="mt-1 max-w-[140px]">
+                                                <div className="mt-1 max-w-35">
                                                     <SecretValue value={entry.entityId} variant="table" />
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="max-w-xs px-4 py-3 text-gray-500">
+                                        <td className="max-w-xs px-4 py-3 text-gray-500 text-nowrap">
                                             <span className="line-clamp-2 text-xs leading-relaxed">
                                                 {truncate(entry.message, 120)}
                                             </span>

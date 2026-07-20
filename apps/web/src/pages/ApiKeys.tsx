@@ -41,7 +41,7 @@ function StatusToggle({ checked, onChange, disabled }: { checked: boolean; onCha
 
 function fetcher(p: { page: number; limit: number; search: string }) {
     return api<PaginatedResult<ApiKeyView>>(
-        `/admin/keys?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`
+        `/admin/keys?page=${p.page}&limit=${p.limit}&search=${encodeURIComponent(p.search)}`,
     );
 }
 
@@ -219,7 +219,7 @@ export function ApiKeys() {
                                         className="cursor-pointer hover:bg-gray-50/50 transition-colors"
                                     >
                                         <td className="px-4 py-3 font-medium text-gray-900">{key.name}</td>
-                                        <td className="px-4 py-3 max-w-[280px]" onClick={(e) => e.stopPropagation()}>
+                                        <td className="px-4 py-3 max-w-70" onClick={(e) => e.stopPropagation()}>
                                             {key.secret ? (
                                                 <SecretValue value={key.secret} variant="table" />
                                             ) : (
@@ -247,8 +247,12 @@ export function ApiKeys() {
                                                 }`
                                             )}
                                         </td>
-                                        <td className="px-4 py-3 text-gray-500">{fmtDate(key.lastUsedAt)}</td>
-                                        <td className="px-4 py-3 text-gray-500">{fmtDate(key.createdAt)}</td>
+                                        <td className="px-4 py-3 text-gray-500 text-nowrap">
+                                            {fmtDate(key.lastUsedAt)}
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-500 text-nowrap">
+                                            {fmtDate(key.createdAt)}
+                                        </td>
                                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-end gap-0.5">
                                                 <ActionBtn
