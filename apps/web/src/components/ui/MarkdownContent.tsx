@@ -32,6 +32,14 @@ const components: Components = {
     <blockquote className="my-2 border-l-2 border-indigo-300 pl-3 text-sm italic text-gray-600 break-anywhere">{children}</blockquote>
   ),
   hr: () => <hr className="my-3 border-gray-200" />,
+  img: ({ src, alt }) => (
+    <img
+      src={typeof src === 'string' ? src : undefined}
+      alt={alt ?? ''}
+      loading="lazy"
+      className="my-3 max-w-full rounded-lg border border-gray-200 shadow-sm"
+    />
+  ),
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="break-anywhere text-indigo-600 underline hover:text-indigo-800">
       {children}

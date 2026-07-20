@@ -2,6 +2,11 @@ import readme from "../../../../docs/README.md?raw";
 import adminApi from "../../../../docs/admin-api.md?raw";
 import sendEmail from "../../../../docs/send-email.md?raw";
 import responseConvention from "../../../../docs/api-response-convention.md?raw";
+import storageApi from "../../../../docs/storage-api.md?raw";
+// Image assets resolve to served URLs so screenshots render in the SPA too.
+import storageKeysList from "../../../../docs/assets/storage-images/storage-api-keys-list.jpg";
+import storageKeyForm from "../../../../docs/assets/storage-images/create-api-key-form.jpg";
+import storageKeyCreated from "../../../../docs/assets/storage-images/successfully-created-the-api-key.jpg";
 
 export interface DocSection {
     id: string;
@@ -16,8 +21,17 @@ function rewriteDocLinks(markdown: string): string {
     return markdown
         .replace(/\]\(\.\/admin-api\.md\)/g, "](/docs/admin-api)")
         .replace(/\]\(\.\/send-email\.md\)/g, "](/docs/send-email)")
+        .replace(/\]\(\.\/storage-api\.md\)/g, "](/docs/storage-api)")
         .replace(/\]\(\.\/api-response-convention\.md\)/g, "](/docs/response-convention)")
         .replace(/\]\(\.\/README\.md\)/g, "](/docs)");
+}
+
+/** Point repo-relative image paths at the bundled/served asset URLs. */
+function rewriteStorageImages(markdown: string): string {
+    return markdown
+        .replace("./assets/storage-images/storage-api-keys-list.jpg", storageKeysList)
+        .replace("./assets/storage-images/create-api-key-form.jpg", storageKeyForm)
+        .replace("./assets/storage-images/successfully-created-the-api-key.jpg", storageKeyCreated);
 }
 
 export const DOC_SECTIONS: DocSection[] = [
@@ -41,6 +55,13 @@ export const DOC_SECTIONS: DocSection[] = [
         title: "Send an Email",
         description: "Authenticate with an API key and send mail (JSON or multipart).",
         content: rewriteDocLinks(sendEmail),
+    },
+    {
+        id: "storage-api",
+        path: "/docs/storage-api",
+        title: "Storage API",
+        description: "Upload files, get CDN/presigned URLs and metadata, list, delete, and show live upload progress.",
+        content: rewriteStorageImages(rewriteDocLinks(storageApi)),
     },
     {
         id: "response-convention",
