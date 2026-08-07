@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Server, Plus, Pencil, Trash2, Eye } from "lucide-react";
+import { Server, Plus, Pencil, Trash2, Info } from "lucide-react";
 import type { EmailConfigView } from "@appszone/shared";
 import { api } from "@/lib/api";
 import type { PaginatedResult } from "@/lib/types";
@@ -11,11 +11,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ListToolbar, PrimaryActionButton } from "@/components/ui/ListToolbar";
 import { ListPageCard, ListTableHead } from "@/components/ui/ListPageCard";
 import { Modal } from "@/components/ui/Modal";
-import { ActionBtn } from "@/components/ui/ActionBtn";
+import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { DetailField, DetailGrid } from "@/components/ui/DetailField";
 import { SecretValue } from "@/components/ui/SecretValue";
+import { Toggle } from "@/components/ui/Toggle";
 
 function fetcher(p: { page: number; limit: number; search: string }) {
     return api<PaginatedResult<EmailConfigView>>(
@@ -50,24 +51,6 @@ const defaultForm: ConfigForm = {
     rejectUnauthorized: true,
     useTls: false,
 };
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-    return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
-            onClick={() => onChange(!checked)}
-            className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-indigo-600" : "bg-gray-200"}`}
-        >
-            <span
-                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                    checked ? "translate-x-4" : "translate-x-0"
-                }`}
-            />
-        </button>
-    );
-}
 
 function StatusToggle({ checked, onChange, disabled }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
     return (
@@ -249,19 +232,37 @@ export function EmailConfigs() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/90">
-                                    {["Name", "Host", "Port", "Username", "TLS", "Status", "Updated", ""].map((h) => (
+                                    {["Name", "Host", "Port", "Username", "TLS", "Status", "Updated"].map((h) => (
                                         <ListTableHead key={h}>{h}</ListTableHead>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {data.map((cfg) => (
+                                {data.map((cfg) => {
+                                    const items: RowMenuItem[] = [
+                                        { key: "edit", label: "Edit", icon: Pencil, onClick: () => openEdit(cfg) },
+                                        {
+                                            key: "delete",
+                                            label: "Delete",
+                                            icon: Trash2,
+                                            tone: "danger",
+                                            onClick: () => deleteConfig(cfg),
+                                        },
+                                    ];
+                                    return (
                                     <tr
                                         key={cfg.id}
                                         onClick={() => setViewing(cfg)}
                                         className="cursor-pointer hover:bg-gray-50/50 transition-colors"
                                     >
-                                        <td className="px-4 py-3 font-medium text-gray-900">{cfg.name}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-1">
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <RowMenu items={items} align="left" />
+                                                </div>
+                                                <span className="font-medium text-gray-900">{cfg.name}</span>
+                                            </div>
+                                        </td>
                                         <td className="px-4 py-3 text-gray-600 font-mono text-xs">{cfg.host}</td>
                                         <td className="px-4 py-3">
                                             <code className="rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-mono text-gray-600">
@@ -288,30 +289,9 @@ export function EmailConfigs() {
                                         <td className="px-4 py-3 text-gray-500 text-nowrap">
                                             {fmtDate(cfg.updatedAt)}
                                         </td>
-                                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-end gap-0.5">
-                                                <ActionBtn
-                                                    icon={Eye}
-                                                    label="Preview"
-                                                    variant="view"
-                                                    onClick={() => setViewing(cfg)}
-                                                />
-                                                <ActionBtn
-                                                    icon={Pencil}
-                                                    label="Edit"
-                                                    variant="edit"
-                                                    onClick={() => openEdit(cfg)}
-                                                />
-                                                <ActionBtn
-                                                    icon={Trash2}
-                                                    label="Delete"
-                                                    variant="delete"
-                                                    onClick={() => deleteConfig(cfg)}
-                                                />
-                                            </div>
-                                        </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -351,6 +331,22 @@ export function EmailConfigs() {
                                 maxLength={255}
                                 className="h-9 w-full rounded-lg border border-gray-200 px-3 text-sm placeholder-gray-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                             />
+                        </div>
+                    </div>
+
+                    {/* Provider hint */}
+                    <div className="flex gap-2.5 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3.5 py-3 text-xs text-indigo-900">
+                        <Info size={15} className="mt-0.5 shrink-0 text-indigo-500" />
+                        <div className="space-y-1">
+                            <p className="font-medium">Using Gmail with an App Password?</p>
+                            <p className="text-indigo-700">
+                                Host <code className="rounded bg-white/70 px-1 py-0.5 font-mono">smtp.gmail.com</code>,
+                                port <code className="rounded bg-white/70 px-1 py-0.5 font-mono">587</code> (STARTTLS)
+                                or <code className="rounded bg-white/70 px-1 py-0.5 font-mono">465</code> (Implicit
+                                TLS). Username is your full Gmail address; password is the 16-character App Password
+                                from your Google Account (requires 2-Step Verification enabled) — not your normal
+                                login password.
+                            </p>
                         </div>
                     </div>
 

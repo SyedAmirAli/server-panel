@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Bucket } from "@prisma/client";
 import type { BucketStats, BucketView, StorageProvider } from "@appszone/shared";
@@ -7,16 +7,19 @@ import { encryptSecret, generateBucketPublicId } from "@/common/crypto";
 import PrismaQueryBuilder, { BasicQueryParams } from "@/common/prisma-query-builder.service";
 import { ToggleActiveClassDto } from "@/common/toggle-active-class.dto";
 import HelperClass from "@/common/HelperClass";
+import { AuthService } from "@/auth/auth.service";
 import { S3ClientService } from "@/modules/storage/s3-client.service";
 import { CreateBucketDto } from "@/modules/storage/dto/create-bucket.dto";
 import { UpdateBucketDto } from "@/modules/storage/dto/update-bucket.dto";
+import { normalizePrefix } from "@/modules/storage/storage-path.util";
 
 @Injectable()
 export class BucketsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly config: ConfigService,
-        private readonly s3: S3ClientService
+        private readonly s3: S3ClientService,
+        private readonly auth: AuthService
     ) {}
 
     private get encryptionKey(): string {
@@ -119,6 +122,30 @@ export class BucketsService {
         return { publicId, objectCount, totalSize, truncated };
     }
 
+    /** Delete-protect a folder. Free/idempotent — no confirmation needed to lock. */
+    async lockPrefix(publicId: string, prefix: string): Promise<BucketView> {
+        const bucket = await this.getEntity(publicId);
+        const normalized = normalizePrefix(prefix);
+        if (!normalized) throw new BadRequestException("A folder prefix is required");
+        const current = (bucket.lockedPrefixes as string[]) ?? [];
+        const next = current.includes(normalized) ? current : [...current, normalized];
+        const updated = await this.prisma.bucket.update({ where: { publicId }, data: { lockedPrefixes: next } });
+        return this.toView(updated);
+    }
+
+    /** Remove a folder's delete-protection. Requires re-entering the admin password. */
+    async unlockPrefix(publicId: string, prefix: string, password: string): Promise<BucketView> {
+        if (!(await this.auth.verifyAdminPassword(password))) {
+            throw new UnauthorizedException("Invalid password");
+        }
+        const bucket = await this.getEntity(publicId);
+        const normalized = normalizePrefix(prefix);
+        const current = (bucket.lockedPrefixes as string[]) ?? [];
+        const next = current.filter((p) => p !== normalized);
+        const updated = await this.prisma.bucket.update({ where: { publicId }, data: { lockedPrefixes: next } });
+        return this.toView(updated);
+    }
+
     toView(b: Bucket): BucketView {
         return {
             id: b.id,
@@ -131,6 +158,7 @@ export class BucketsService {
             forcePathStyle: b.forcePathStyle,
             publicBaseUrl: b.publicBaseUrl,
             isActive: b.isActive,
+            lockedPrefixes: (b.lockedPrefixes as string[]) ?? [],
             createdAt: b.createdAt.toISOString(),
             updatedAt: b.updatedAt.toISOString(),
         };

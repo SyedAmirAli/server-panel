@@ -57,10 +57,31 @@ export class CopyObjectDto {
     @IsString()
     sourceKey: string;
 
-    @ApiPropertyOptional({ example: "documents/a-copy.png", description: "Optional target key; auto-derived if omitted." })
+    @ApiPropertyOptional({
+        example: "documents/students",
+        description: "Destination folder, root-relative. Omit to copy into the source object's own folder.",
+    })
     @IsOptional()
     @IsString()
-    destKey?: string;
+    destPrefix?: string;
+
+    @ApiPropertyOptional({ example: "renamed-file", description: "New base filename (extension is derived automatically). Omit to keep the source name (with a '-copy' suffix)." })
+    @IsOptional()
+    @IsString()
+    newName?: string;
+
+    @ApiPropertyOptional({ description: "Convert the copy to WebP (images only; ignored for non-images)." })
+    @IsOptional()
+    @Transform(({ value }) => (value === "" || value === undefined ? undefined : value === true || value === "true"))
+    convertToWebp?: boolean;
+
+    @ApiPropertyOptional({ example: 80 })
+    @IsOptional()
+    @Transform(({ value }) => (value === "" || value === undefined ? undefined : Number(value)))
+    @IsInt()
+    @Min(1)
+    @Max(100)
+    quality?: number;
 }
 
 export class PresignQueryDto {
@@ -80,6 +101,38 @@ export class PresignQueryDto {
     @Min(60)
     @Max(604800)
     expiresIn?: number;
+}
+
+export class LockPathDto {
+    @ApiPropertyOptional({ example: "documents/students", description: "Folder prefix to delete-protect." })
+    @IsString()
+    prefix: string;
+}
+
+export class UnlockPathDto {
+    @ApiPropertyOptional({ example: "documents/students" })
+    @IsString()
+    prefix: string;
+
+    @ApiPropertyOptional({ description: "Admin password, re-entered to confirm removing delete-protection." })
+    @IsString()
+    password: string;
+}
+
+export class CreateFileDto {
+    @ApiPropertyOptional({ example: "documents/students", description: "Destination folder. Omit for bucket root." })
+    @IsOptional()
+    @IsString()
+    prefix?: string;
+
+    @ApiPropertyOptional({ example: "My Notes (draft).txt", description: "Exact file name, verbatim — not slugified." })
+    @IsString()
+    name: string;
+
+    @ApiPropertyOptional({ description: "Initial text content. Omit/blank for a zero-byte file." })
+    @IsOptional()
+    @IsString()
+    content?: string;
 }
 
 export class CreateZipDto {

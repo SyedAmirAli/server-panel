@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ListToolbar } from "@/components/ui/ListToolbar";
 import { ListPageCard, ListTableHead } from "@/components/ui/ListPageCard";
 import { Modal } from "@/components/ui/Modal";
-import { ActionBtn } from "@/components/ui/ActionBtn";
+import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { SecretValue } from "@/components/ui/SecretValue";
 import { MarkdownContent } from "@/components/ui/MarkdownContent";
 import { HtmlContent } from "@/components/ui/HtmlContent";
@@ -105,20 +105,29 @@ export function AuditLog() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/90">
-                                    {["Action", "Actor", "Entity", "Message", "IP", "Date", ""].map((h) => (
+                                    {["Action", "Actor", "Entity", "Message", "IP", "Date"].map((h) => (
                                         <ListTableHead key={h}>{h}</ListTableHead>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {data.map((entry) => (
+                                {data.map((entry) => {
+                                    const items: RowMenuItem[] = [
+                                        { key: "view", label: "View details", icon: Eye, onClick: () => setViewing(entry) },
+                                    ];
+                                    return (
                                     <tr
                                         key={entry.id}
                                         onClick={() => setViewing(entry)}
                                         className="cursor-pointer hover:bg-gray-50/50 transition-colors"
                                     >
                                         <td className="px-4 py-3">
-                                            <Badge variant={actionVariant(entry.action)}>{entry.action}</Badge>
+                                            <div className="flex items-center gap-1.5">
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <RowMenu items={items} align="left" />
+                                                </div>
+                                                <Badge variant={actionVariant(entry.action)}>{entry.action}</Badge>
+                                            </div>
                                         </td>
                                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                             <span className="text-gray-700">{entry.actorType}</span>
@@ -148,16 +157,9 @@ export function AuditLog() {
                                         <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
                                             {fmtDateTime(entry.createdAt)}
                                         </td>
-                                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                            <ActionBtn
-                                                icon={Eye}
-                                                label="View details"
-                                                variant="view"
-                                                onClick={() => setViewing(entry)}
-                                            />
-                                        </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

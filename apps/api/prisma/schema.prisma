@@ -28,19 +28,26 @@ model ApiKey {
 }
 
 model Mailbox {
-  id           String        @id @default(cuid())
-  address      String        @unique
-  imapHost     String
-  imapUser     String
-  imapPassword String        @db.Text // AES-256-GCM encrypted at rest
-  smtpHost     String
-  smtpUser     String
-  smtpPassword String        @db.Text // AES-256-GCM encrypted at rest
-  isActive     Boolean       @default(true)
-  lastSyncUid  Int?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  messages     MailMessage[]
+  id            String        @id @default(cuid())
+  address       String        @unique
+  displayName   String?
+  imapHost      String
+  imapPort      Int           @default(993)
+  imapSecure    Boolean       @default(true)
+  imapUser      String
+  imapPassword  String        @db.Text // AES-256-GCM encrypted at rest
+  smtpHost      String
+  smtpPort      Int           @default(587)
+  smtpSecure    Boolean       @default(false)
+  smtpUser      String
+  smtpPassword  String        @db.Text // AES-256-GCM encrypted at rest
+  isActive      Boolean       @default(true)
+  lastSyncUid   Int?
+  lastSyncAt    DateTime?
+  lastSyncError String?       @db.Text
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  messages      MailMessage[]
 
   @@index([isActive])
   @@map("mailboxes")
@@ -49,24 +56,29 @@ model Mailbox {
 model MailMessage {
   id         String   @id @default(cuid())
   uid        Int?
-  
+
   mailboxId  String
   mailbox    Mailbox  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
-  
+
   messageId  String   @db.VarChar(255) // RFC822 Message-ID header
-  
-  from       String
-  to         Json // string[] of recipients (MySQL has no scalar list type)
-  subject    String   @db.Text
-  snippet    String   @db.Text
-  body       String   @db.LongText
-  html       String?  @db.LongText
+
+  from        String
+  to          Json // string[] of recipients (MySQL has no scalar list type)
+  cc          Json? // string[]
+  bcc         Json? // string[]
+  subject     String   @db.Text
+  snippet     String   @db.Text
+  body        String   @db.LongText
+  html        String?  @db.LongText
+  flags       Json? // string[] of IMAP flags (\Seen, \Answered, \Flagged, ...)
+  attachments Json? // [{ filename, contentType, size }] metadata only, no blob storage
   receivedAt DateTime
   isRead     Boolean  @default(false)
   syncedAt   DateTime @default(now())
 
   @@unique([mailboxId, messageId])
   @@index([mailboxId, receivedAt])
+  @@index([receivedAt, id]) // keyset pagination across all mailboxes: ORDER BY receivedAt desc, id desc
   @@map("mail_messages")
 }
 
@@ -150,6 +162,7 @@ model Bucket {
   secretKeyEnc   String          @db.Text // AES-256-GCM encrypted secret access key
   publicBaseUrl  String? // CDN/custom domain for public objects (no trailing slash)
   isActive       Boolean         @default(true)
+  lockedPrefixes Json            @default("[]") // string[] of locked folder prefixes (no leading/trailing slash); delete-protected
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   objects        StorageObject[]

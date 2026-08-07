@@ -35,7 +35,11 @@ export type FireAuditLogAction =
 @Injectable()
 export class MailsService {
     private readonly logger = new Logger(MailsService.name);
-    private transporter: Transporter | null = null;
+    // Keyed per sender config (not a single instance-wide transporter) so different
+    // `from` addresses use their own EmailConfig, and edits to a config (password/host/
+    // port rotation) take effect immediately instead of being shadowed by whichever
+    // transporter happened to be built first since the process started.
+    private transporters = new Map<string, Transporter>();
 
     constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
 
@@ -218,27 +222,30 @@ export class MailsService {
 
         const senderName = (emailConfig?.name ?? defaultName)?.trim() || undefined;
 
-        if (!this.transporter) {
+        // make a audit log for the email config used while actual config not found
+        if (!emailConfig) {
+            await fireAuditLog?.("send.sender.username.notfound", undefined, {
+                from,
+                defaultHost,
+                defaultPort,
+                defaultUser,
+                defaultPassword,
+                rejectUnauthorized,
+            });
+        }
+
+        // Cache per sender config, invalidated automatically when the config row changes
+        // (updatedAt bumps on any field edit — password/host/port rotation, etc.).
+        const cacheKey = emailConfig ? `${emailConfig.id}:${emailConfig.updatedAt.getTime()}` : "__default__";
+        let transporter = this.transporters.get(cacheKey);
+        if (!transporter) {
             const port = emailConfig?.port ?? defaultPort;
             const host = emailConfig?.host ?? defaultHost;
             const user = emailConfig?.username ?? defaultUser;
             const pass = emailConfig?.password ?? defaultPassword;
-
-            // make a audit log for the email config used while actual config not found
-            if (!emailConfig) {
-                await fireAuditLog?.("send.sender.username.notfound", undefined, {
-                    from,
-                    defaultHost,
-                    defaultPort,
-                    defaultUser,
-                    defaultPassword,
-                    rejectUnauthorized,
-                });
-            }
-
             const tls = { rejectUnauthorized, ...HelperClass.toJson(emailConfig?.tls) };
 
-            this.transporter = createTransport({
+            transporter = createTransport({
                 host,
                 port,
                 tls,
@@ -246,9 +253,10 @@ export class MailsService {
                 requireTLS: port !== 465, // force STARTTLS on non-SSL ports
                 auth: { user, pass },
             });
+            this.transporters.set(cacheKey, transporter);
         }
 
-        return { transporter: this.transporter, senderName };
+        return { transporter, senderName };
     }
 
     /** Nodemailer `from` — display name is what recipients see in the inbox (e.g. "sales"). */

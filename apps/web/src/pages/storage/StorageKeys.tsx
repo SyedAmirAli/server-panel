@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ListToolbar, PrimaryActionButton } from "@/components/ui/ListToolbar";
 import { ListPageCard, ListTableHead } from "@/components/ui/ListPageCard";
 import { Modal } from "@/components/ui/Modal";
-import { ActionBtn } from "@/components/ui/ActionBtn";
+import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { SecretValue } from "@/components/ui/SecretValue";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -235,15 +235,38 @@ export function StorageKeys() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/90">
-                                    {["Name", "Key", "Status", "Buckets", "Expires", "Last used", ""].map((h) => (
+                                    {["Name", "Key", "Status", "Buckets", "Expires", "Last used"].map((h) => (
                                         <ListTableHead key={h}>{h}</ListTableHead>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {data.map((k) => (
+                                {data.map((k) => {
+                                    const items: RowMenuItem[] = [
+                                        { key: "edit", label: "Edit", icon: Pencil, onClick: () => openEdit(k) },
+                                        {
+                                            key: "rotate",
+                                            label: "Rotate secret",
+                                            icon: RefreshCw,
+                                            loading: busyId === k.id + ":rotate",
+                                            onClick: () => rotate(k),
+                                        },
+                                        {
+                                            key: "delete",
+                                            label: "Delete",
+                                            icon: Trash2,
+                                            tone: "danger",
+                                            onClick: () => setConfirmDel(k),
+                                        },
+                                    ];
+                                    return (
                                     <tr key={k.id} className="hover:bg-gray-50/50 transition-colors">
-                                        <td className="px-4 py-3 font-medium text-gray-900">{k.name}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-1">
+                                                <RowMenu items={items} align="left" />
+                                                <span className="font-medium text-gray-900">{k.name}</span>
+                                            </div>
+                                        </td>
                                         <td className="px-4 py-3 max-w-60">
                                             {k.secret ? (
                                                 <SecretValue value={k.secret} variant="table" />
@@ -279,31 +302,9 @@ export function StorageKeys() {
                                         <td className="px-4 py-3 text-gray-500 text-nowrap">
                                             {formatDate(k.lastUsedAt)}
                                         </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex items-center justify-end gap-0.5">
-                                                <ActionBtn
-                                                    icon={Pencil}
-                                                    label="Edit"
-                                                    variant="edit"
-                                                    onClick={() => openEdit(k)}
-                                                />
-                                                <ActionBtn
-                                                    icon={RefreshCw}
-                                                    label="Rotate secret"
-                                                    variant="rotate"
-                                                    loading={busyId === k.id + ":rotate"}
-                                                    onClick={() => rotate(k)}
-                                                />
-                                                <ActionBtn
-                                                    icon={Trash2}
-                                                    label="Delete"
-                                                    variant="delete"
-                                                    onClick={() => setConfirmDel(k)}
-                                                />
-                                            </div>
-                                        </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

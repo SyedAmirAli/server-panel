@@ -39,7 +39,7 @@ export const DOC_SECTIONS: DocSection[] = [
         id: "overview",
         path: "/docs",
         title: "Overview",
-        description: "Guides for integrating with the AppsZone Mail API.",
+        description: "Guides for integrating with the Amir's Panel API.",
         content: rewriteDocLinks(readme),
     },
     {

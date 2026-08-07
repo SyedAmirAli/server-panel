@@ -18,7 +18,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ListToolbar, PrimaryActionButton } from "@/components/ui/ListToolbar";
 import { ListPageCard, ListTableHead } from "@/components/ui/ListPageCard";
 import { Modal } from "@/components/ui/Modal";
-import { ActionBtn } from "@/components/ui/ActionBtn";
+import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { ZipProgressModal } from "@/pages/storage/ZipProgressModal";
@@ -184,7 +184,7 @@ export function Buckets() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/90">
-                                    {["Name", "Bucket ID", "Provider", "Bucket", "Status", "Created", ""].map((h) => (
+                                    {["Name", "Bucket ID", "Provider", "Bucket", "Status", "Created"].map((h) => (
                                         <ListTableHead key={h}>{h}</ListTableHead>
                                     ))}
                                 </tr>
@@ -196,7 +196,34 @@ export function Buckets() {
                                         onClick={() => navigate(`/storage/${b.publicId}`)}
                                         className="cursor-pointer hover:bg-gray-50/50 transition-colors"
                                     >
-                                        <td className="px-4 py-3 font-medium text-gray-900">{b.name}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-1">
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <RowMenu
+                                                        align="left"
+                                                        items={
+                                                            [
+                                                                {
+                                                                    key: "zip",
+                                                                    label: "Download whole bucket (ZIP)",
+                                                                    icon: FileArchive,
+                                                                    onClick: () => setZipBucket(b),
+                                                                },
+                                                                { key: "edit", label: "Edit", icon: Pencil, onClick: () => openEdit(b) },
+                                                                {
+                                                                    key: "delete",
+                                                                    label: "Delete",
+                                                                    icon: Trash2,
+                                                                    tone: "danger",
+                                                                    onClick: () => setConfirmDelete(b),
+                                                                },
+                                                            ] satisfies RowMenuItem[]
+                                                        }
+                                                    />
+                                                </div>
+                                                <span className="font-medium text-gray-900">{b.name}</span>
+                                            </div>
+                                        </td>
                                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center gap-1.5">
                                                 <span className="font-mono text-xs text-gray-600">{b.publicId}</span>
@@ -211,23 +238,6 @@ export function Buckets() {
                                             </Badge>
                                         </td>
                                         <td className="px-4 py-3 text-gray-500">{formatDate(b.createdAt)}</td>
-                                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-end gap-0.5">
-                                                <ActionBtn
-                                                    icon={FileArchive}
-                                                    label="Download whole bucket (ZIP)"
-                                                    variant="rotate"
-                                                    onClick={() => setZipBucket(b)}
-                                                />
-                                                <ActionBtn icon={Pencil} label="Edit" variant="edit" onClick={() => openEdit(b)} />
-                                                <ActionBtn
-                                                    icon={Trash2}
-                                                    label="Delete"
-                                                    variant="delete"
-                                                    onClick={() => setConfirmDelete(b)}
-                                                />
-                                            </div>
-                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

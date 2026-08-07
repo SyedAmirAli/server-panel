@@ -34,7 +34,7 @@ import { AdminSseGuard } from "@/modules/storage/admin-sse.guard";
 import { StorageAuditService, StorageAuditAction } from "@/modules/storage/storage-audit.service";
 import { CreateBucketDto } from "@/modules/storage/dto/create-bucket.dto";
 import { UpdateBucketDto } from "@/modules/storage/dto/update-bucket.dto";
-import { CopyObjectDto, CreateZipDto, DeleteObjectsDto, ListObjectsQueryDto, PresignQueryDto } from "@/modules/storage/dto/objects.dto";
+import { CopyObjectDto, CreateFileDto, CreateZipDto, DeleteObjectsDto, ListObjectsQueryDto, LockPathDto, PresignQueryDto, UnlockPathDto } from "@/modules/storage/dto/objects.dto";
 import { UploadDto } from "@/modules/storage/dto/upload.dto";
 
 @ApiTags("Storage — Admin")
@@ -174,6 +174,24 @@ export class BucketsAdminController {
         return ApiResponse.success(result, "File uploaded successfully");
     }
 
+    @Post("buckets/:publicId/objects/create-file")
+    @UseGuards(AdminGuard)
+    @ApiParam({ name: "publicId" })
+    @ApiOperation({ summary: "Create an empty file at an exact name (no slugify, no processing)" })
+    async createFile(@Param("publicId") publicId: string, @Body() dto: CreateFileDto, @NestHeaders() headers: any) {
+        const bucket = await this.buckets.getActiveEntity(publicId);
+        const result = await this.objects.createFile(bucket, dto, { type: "admin" });
+        await this.audit.record({
+            action: StorageAuditAction.OBJECT_CREATE,
+            actorType: "admin",
+            entityType: "StorageObject",
+            entityId: result.object.id,
+            metadata: { key: result.key, bucketId: publicId },
+            headers,
+        });
+        return ApiResponse.success(result, "File created successfully");
+    }
+
     @Delete("buckets/:publicId/objects")
     @UseGuards(AdminGuard)
     @ApiParam({ name: "publicId" })
@@ -198,7 +216,12 @@ export class BucketsAdminController {
     @ApiOperation({ summary: "Copy an object" })
     async copyObject(@Param("publicId") publicId: string, @Body() dto: CopyObjectDto, @NestHeaders() headers: any) {
         const bucket = await this.buckets.getActiveEntity(publicId);
-        const result = await this.objects.copyObject(bucket, dto.sourceKey, dto.destKey);
+        const result = await this.objects.copyObject(bucket, dto.sourceKey, {
+            destPrefix: dto.destPrefix,
+            newName: dto.newName,
+            convertToWebp: dto.convertToWebp,
+            quality: dto.quality,
+        });
         await this.audit.record({
             action: StorageAuditAction.OBJECT_COPY,
             actorType: "admin",
@@ -208,6 +231,40 @@ export class BucketsAdminController {
             headers,
         });
         return ApiResponse.success(result, "Object copied successfully");
+    }
+
+    @Post("buckets/:publicId/lock")
+    @UseGuards(AdminGuard)
+    @ApiParam({ name: "publicId" })
+    @ApiOperation({ summary: "Delete-protect a folder (no confirmation required)" })
+    async lockPath(@Param("publicId") publicId: string, @Body() dto: LockPathDto, @NestHeaders() headers: any) {
+        const bucket = await this.buckets.lockPrefix(publicId, dto.prefix);
+        await this.audit.record({
+            action: StorageAuditAction.PATH_LOCK,
+            actorType: "admin",
+            entityType: "Bucket",
+            entityId: publicId,
+            metadata: { prefix: dto.prefix },
+            headers,
+        });
+        return ApiResponse.success(bucket, `"${dto.prefix}" is now delete-protected`);
+    }
+
+    @Post("buckets/:publicId/unlock")
+    @UseGuards(AdminGuard)
+    @ApiParam({ name: "publicId" })
+    @ApiOperation({ summary: "Remove a folder's delete-protection (requires the admin password)" })
+    async unlockPath(@Param("publicId") publicId: string, @Body() dto: UnlockPathDto, @NestHeaders() headers: any) {
+        const bucket = await this.buckets.unlockPrefix(publicId, dto.prefix, dto.password);
+        await this.audit.record({
+            action: StorageAuditAction.PATH_UNLOCK,
+            actorType: "admin",
+            entityType: "Bucket",
+            entityId: publicId,
+            metadata: { prefix: dto.prefix },
+            headers,
+        });
+        return ApiResponse.success(bucket, `"${dto.prefix}" is no longer delete-protected`);
     }
 
     @Get("buckets/:publicId/objects/presign")

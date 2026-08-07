@@ -103,6 +103,8 @@ export interface BucketView {
   forcePathStyle: boolean;
   publicBaseUrl: string | null;
   isActive: boolean;
+  /** Folder prefixes with delete-protection enabled (no leading/trailing slash). */
+  lockedPrefixes: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -238,10 +240,15 @@ export interface EmailConfigView {
 /* ─── Mailboxes ──────────────────────────────────────────────── */
 export interface MailboxDto {
   address: string;
+  displayName?: string;
   imapHost: string;
+  imapPort?: number;
+  imapSecure?: boolean;
   imapUser: string;
   imapPassword: string;
   smtpHost: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
   smtpUser: string;
   smtpPassword: string;
   isActive?: boolean;
@@ -250,30 +257,56 @@ export interface MailboxDto {
 export interface MailboxView {
   id: string;
   address: string;
+  displayName: string | null;
   imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
   imapUser: string;
   smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
   smtpUser: string;
   isActive: boolean;
   lastSyncUid: number | null;
+  lastSyncAt: string | null;
+  lastSyncError: string | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface MailboxConnectionTestResult {
+  imap: { ok: boolean; error?: string };
+  smtp: { ok: boolean; error?: string };
 }
 
 /* ─── Mail messages ──────────────────────────────────────────── */
 export interface MailMessageView {
   id: string;
+  uid: number | null;
   mailboxId: string;
+  messageId: string;
   from: string;
   to: string[];
+  cc: string[];
+  bcc: string[];
   subject: string;
   snippet: string;
   receivedAt: string;
   isRead: boolean;
+  syncedAt: string;
+}
+
+export interface MailAttachmentMeta {
+  filename: string | null;
+  contentType: string;
+  size: number;
 }
 
 export interface MailMessageDetailView extends MailMessageView {
   body: string;
   html: string | null;
+  flags: string[];
+  attachments: MailAttachmentMeta[];
 }
 
 /* ─── Dashboard stats ────────────────────────────────────────── */

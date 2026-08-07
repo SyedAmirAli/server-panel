@@ -3,7 +3,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Dashboard } from "@/pages/Dashboard";
 import { SendMail } from "@/pages/SendMail";
 import { MailMessages } from "@/pages/MailMessages";
-import { MessageDetail } from "@/pages/MessageDetail";
+import { MailboxInbox } from "@/pages/MailboxInbox";
 import { ApiKeys } from "@/pages/ApiKeys";
 import { EmailConfigs } from "@/pages/EmailConfigs";
 import { AuditLog } from "@/pages/AuditLog";
@@ -22,7 +22,7 @@ export const router = createBrowserRouter([
             { index: true, element: <Dashboard /> },
             { path: "send", element: <SendMail /> },
             { path: "inbox", element: <MailMessages /> },
-            { path: "inbox/:id", element: <MessageDetail /> },
+            { path: "mailboxes/:id/inbox", element: <MailboxInbox /> },
             { path: "keys", element: <ApiKeys /> },
             { path: "email-configs", element: <EmailConfigs /> },
             { path: "storage", element: <Buckets /> },

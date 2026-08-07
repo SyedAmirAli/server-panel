@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Bucket, StorageApiKey, StorageObject } from "@prisma/client";
+import type { Readable } from "node:stream";
 import sharp from "sharp";
 import type {
     StorageListEntry,
@@ -12,7 +13,7 @@ import { PrismaService } from "@/prisma/prisma.service";
 import PrismaQueryBuilder, { BasicQueryParams } from "@/common/prisma-query-builder.service";
 import { S3ClientService } from "@/modules/storage/s3-client.service";
 import { BucketsService } from "@/modules/storage/buckets.service";
-import { buildKey, candidateName, normalizeKeyPath, normalizePrefix, slugifyFilename } from "@/modules/storage/storage-path.util";
+import { buildKey, candidateName, findLockingPrefix, normalizeKeyPath, normalizePrefix, slugifyFilename } from "@/modules/storage/storage-path.util";
 
 export interface UploadFile {
     originalname: string;
@@ -37,6 +38,35 @@ function coerceBool(value: unknown, fallback: boolean): boolean {
     if (value === undefined || value === null || value === "") return fallback;
     if (typeof value === "boolean") return value;
     return ["true", "1", "yes", "on"].includes(String(value).toLowerCase());
+}
+
+function streamToBuffer(stream: Readable): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        stream.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        stream.on("end", () => resolve(Buffer.concat(chunks)));
+        stream.on("error", reject);
+    });
+}
+
+const EXT_CONTENT_TYPES: Record<string, string> = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".csv": "text/csv",
+    ".xml": "application/xml",
+    ".yml": "application/yaml",
+    ".yaml": "application/yaml",
+};
+
+function contentTypeForName(name: string): string {
+    const dot = name.lastIndexOf(".");
+    if (dot <= 0) return "application/octet-stream";
+    return EXT_CONTENT_TYPES[name.slice(dot).toLowerCase()] ?? "application/octet-stream";
 }
 
 export interface UploadActor {
@@ -244,6 +274,56 @@ export class ObjectsService {
         };
     }
 
+    /**
+     * Create an empty (zero-byte) file at an exact name — no slugify, no uniqueness
+     * resolution. The name is used verbatim (spaces/special characters allowed); callers who
+     * want a clean slug can generate one client-side before submitting, but it's never forced.
+     */
+    async createFile(bucket: Bucket, opts: { prefix?: string; name: string; content?: string }, actor: UploadActor): Promise<UploadResult> {
+        const name = opts.name.trim();
+        if (!name) throw new BadRequestException("File name is required");
+
+        const key = normalizeKeyPath(opts.prefix ? `${opts.prefix}/${name}` : name);
+        if (!key) throw new BadRequestException("Invalid file name");
+
+        if (await this.s3.objectExists(bucket, key)) {
+            throw new BadRequestException(`"${key}" already exists`);
+        }
+
+        const contentType = contentTypeForName(name);
+        const body = Buffer.from(opts.content ?? "", "utf-8");
+        const put = await this.s3.putObject(bucket, key, body, contentType);
+
+        const objectPrefix = key.includes("/") ? key.slice(0, key.lastIndexOf("/")) : null;
+        const record = await this.prisma.storageObject.create({
+            data: {
+                bucketId: bucket.id,
+                key,
+                prefix: objectPrefix,
+                originalName: name.slice(0, 512),
+                size: body.length,
+                contentType,
+                etag: put.etag ?? null,
+                isPrivate: true,
+                uploadedByType: actor.type,
+                uploadedById: actor.id ?? null,
+            },
+        });
+
+        const expiresIn = this.defaultPresignTtl;
+        const url = await this.s3.presignGetUrl(bucket, key, expiresIn);
+
+        return {
+            key,
+            bucketId: bucket.publicId,
+            url,
+            endpointUrl: null,
+            presigned: true,
+            expiresIn,
+            object: this.toView(record),
+        };
+    }
+
     /** Browse a bucket live (folders + files under a prefix). */
     async listLive(bucket: Bucket, prefix?: string, token?: string, limit = 100): Promise<StorageListResult> {
         const normalized = prefix ? `${normalizePrefix(prefix)}/` : "";
@@ -292,48 +372,87 @@ export class ObjectsService {
     }
 
     async deleteObjects(bucket: Bucket, keys: string[]): Promise<{ deleted: number }> {
+        const lockedPrefixes = (bucket.lockedPrefixes as string[]) ?? [];
+        if (lockedPrefixes.length > 0) {
+            for (const key of keys) {
+                const locking = findLockingPrefix(key, lockedPrefixes);
+                if (locking) {
+                    throw new ForbiddenException(`"${key}" is under locked folder "${locking}" — unlock it first`);
+                }
+            }
+        }
         await this.s3.deleteObjects(bucket, keys);
         await this.prisma.storageObject.deleteMany({ where: { bucketId: bucket.id, key: { in: keys } } });
         return { deleted: keys.length };
     }
 
-    async copyObject(bucket: Bucket, sourceKey: string, destKey?: string): Promise<{ key: string }> {
-        let target = destKey;
-        if (!target) {
-            // Derive "name-copy.ext" then resolve uniqueness.
-            const slashIdx = sourceKey.lastIndexOf("/");
-            const dir = slashIdx >= 0 ? sourceKey.slice(0, slashIdx) : "";
-            const filename = slashIdx >= 0 ? sourceKey.slice(slashIdx + 1) : sourceKey;
-            const dot = filename.lastIndexOf(".");
-            const base = dot > 0 ? filename.slice(0, dot) : filename;
-            const ext = dot > 0 ? filename.slice(dot) : "";
-            target = await this.resolveUniqueKey(bucket, dir, `${base}-copy`, ext);
-        }
-        await this.s3.copyObject(bucket, sourceKey, target);
+    async copyObject(
+        bucket: Bucket,
+        sourceKey: string,
+        opts: { destPrefix?: string; newName?: string; convertToWebp?: boolean; quality?: number } = {}
+    ): Promise<{ key: string }> {
+        const slashIdx = sourceKey.lastIndexOf("/");
+        const sourceDir = slashIdx >= 0 ? sourceKey.slice(0, slashIdx) : "";
+        const sourceFilename = slashIdx >= 0 ? sourceKey.slice(slashIdx + 1) : sourceKey;
+        const dot = sourceFilename.lastIndexOf(".");
+        const sourceBase = dot > 0 ? sourceFilename.slice(0, dot) : sourceFilename;
+        const sourceExt = dot > 0 ? sourceFilename.slice(dot) : "";
 
-        // Mirror the DB record if the source was tracked.
-        const src = await this.prisma.storageObject.findFirst({ where: { bucketId: bucket.id, key: sourceKey } });
-        if (src) {
-            const prefix = target.includes("/") ? target.slice(0, target.lastIndexOf("/")) : null;
-            await this.prisma.storageObject.create({
-                data: {
-                    bucketId: bucket.id,
-                    key: target,
-                    prefix,
-                    originalName: src.originalName,
-                    size: src.size,
-                    contentType: src.contentType,
-                    etag: src.etag,
-                    isPrivate: src.isPrivate,
-                    convertedWebp: src.convertedWebp,
-                    compressed: src.compressed,
-                    quality: src.quality,
-                    uploadedByType: src.uploadedByType,
-                    uploadedById: src.uploadedById,
-                    metadata: src.metadata ?? undefined,
-                },
-            });
+        const destPrefix = opts.destPrefix !== undefined ? normalizePrefix(opts.destPrefix) : sourceDir;
+        const baseName = opts.newName ? slugifyFilename(opts.newName).base : `${sourceBase}-copy`;
+
+        // Only convert to WebP if the source is actually an image.
+        let convert = false;
+        if (opts.convertToWebp) {
+            const head = await this.s3.headObject(bucket, sourceKey);
+            const contentType = head?.contentType ?? "";
+            convert = contentType.startsWith("image/") && contentType !== "image/svg+xml";
         }
+
+        const ext = convert ? ".webp" : sourceExt;
+        const target = await this.resolveUniqueKey(bucket, destPrefix, baseName, ext);
+        const prefix = target.includes("/") ? target.slice(0, target.lastIndexOf("/")) : null;
+
+        let contentType: string;
+        let size: number;
+        let etag: string | null;
+
+        if (convert) {
+            const stream = await this.s3.getObjectStream(bucket, sourceKey);
+            const source = await streamToBuffer(stream);
+            const webp = await sharp(source, { failOn: "none" }).webp({ quality: opts.quality ?? 80 }).toBuffer();
+            const put = await this.s3.putObject(bucket, target, webp, "image/webp");
+            contentType = "image/webp";
+            size = webp.length;
+            etag = put.etag ?? null;
+        } else {
+            await this.s3.copyObject(bucket, sourceKey, target);
+            const head = await this.s3.headObject(bucket, target);
+            contentType = head?.contentType ?? "application/octet-stream";
+            size = head?.size ?? 0;
+            etag = head?.etag ?? null;
+        }
+
+        // Mirror the DB record if the source was tracked (or always create one so a converted copy is discoverable).
+        const src = await this.prisma.storageObject.findFirst({ where: { bucketId: bucket.id, key: sourceKey } });
+        await this.prisma.storageObject.create({
+            data: {
+                bucketId: bucket.id,
+                key: target,
+                prefix,
+                originalName: src?.originalName ?? sourceFilename,
+                size,
+                contentType,
+                etag,
+                isPrivate: src?.isPrivate ?? true,
+                convertedWebp: convert,
+                compressed: src?.compressed ?? false,
+                quality: convert ? opts.quality ?? 80 : src?.quality ?? null,
+                uploadedByType: src?.uploadedByType ?? "admin",
+                uploadedById: src?.uploadedById ?? null,
+                metadata: src?.metadata ?? undefined,
+            },
+        });
         return { key: target };
     }
 

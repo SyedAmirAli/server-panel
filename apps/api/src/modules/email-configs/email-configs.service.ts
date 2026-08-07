@@ -38,19 +38,6 @@ export class EmailConfigsService {
         const { page, limit, order, orderBy, search, fromDate, toDate, baseUrl, pageName, select } =
             PrismaQueryBuilder.parseParams(params);
 
-        console.log("params", params, "parsed", {
-            page,
-            limit,
-            order,
-            orderBy,
-            search,
-            fromDate,
-            toDate,
-            baseUrl,
-            pageName,
-            select,
-        });
-
         const builder = PrismaQueryBuilder.create<EmailConfig>(this.prisma, "emailConfig")
             .select(select)
             .search(search, ["name", "host", "username"])

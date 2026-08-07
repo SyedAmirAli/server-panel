@@ -43,3 +43,18 @@ export function normalizeKeyPath(path: string): string {
 export function candidateName(base: string, ext: string, n: number): string {
     return n === 0 ? `${base}${ext}` : `${base}-${n}${ext}`;
 }
+
+/**
+ * If `key` falls under any locked folder prefix (the prefix itself or anything nested
+ * beneath it), returns that prefix; otherwise null. Prefixes are compared normalized
+ * (no leading/trailing slashes).
+ */
+export function findLockingPrefix(key: string, lockedPrefixes: string[]): string | null {
+    const normalizedKey = key.replace(/^\/+|\/+$/g, "");
+    for (const raw of lockedPrefixes) {
+        const prefix = normalizePrefix(raw);
+        if (!prefix) continue;
+        if (normalizedKey === prefix || normalizedKey.startsWith(`${prefix}/`)) return prefix;
+    }
+    return null;
+}

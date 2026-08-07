@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CheckCheck, Eye } from "lucide-react";
+import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { api } from "@/lib/api";
 import type { PaginatedResult } from "@/lib/types";
 import { usePaginated } from "@/hooks/usePaginated";
@@ -10,7 +11,6 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ListToolbar } from "@/components/ui/ListToolbar";
 import { ListPageCard, ListTableHead } from "@/components/ui/ListPageCard";
 import { Modal } from "@/components/ui/Modal";
-import { ActionBtn } from "@/components/ui/ActionBtn";
 
 interface SentMessage {
     id: string;
@@ -94,19 +94,30 @@ export function SentMessages() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/90">
-                                    {["From", "To", "Subject", "Status", "Error", "Sent at", ""].map((h) => (
+                                    {["From", "To", "Subject", "Status", "Error", "Sent at"].map((h) => (
                                         <ListTableHead key={h}>{h}</ListTableHead>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {data.map((msg) => (
+                                {data.map((msg) => {
+                                    const items: RowMenuItem[] = [
+                                        { key: "view", label: "View details", icon: Eye, onClick: () => setViewing(msg) },
+                                    ];
+                                    return (
                                     <tr
                                         key={msg.id}
                                         onClick={() => setViewing(msg)}
                                         className="cursor-pointer hover:bg-gray-50/50 transition-colors"
                                     >
-                                        <td className="px-4 py-3 text-gray-700">{msg.from}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-1">
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <RowMenu items={items} align="left" />
+                                                </div>
+                                                <span className="text-gray-700">{msg.from}</span>
+                                            </div>
+                                        </td>
                                         <td className="px-4 py-3 text-gray-600 text-xs">{recipientSummary(msg.to)}</td>
                                         <td className="max-w-[220px] px-4 py-3">
                                             <span className="block truncate text-gray-700" title={msg.subject}>
@@ -128,16 +139,9 @@ export function SentMessages() {
                                         <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
                                             {fmtDateTime(msg.createdAt)}
                                         </td>
-                                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                            <ActionBtn
-                                                icon={Eye}
-                                                label="View details"
-                                                variant="view"
-                                                onClick={() => setViewing(msg)}
-                                            />
-                                        </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

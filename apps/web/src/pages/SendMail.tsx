@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import DOMPurify from "dompurify";
-import type { EmailConfigView, MailBodyType, SentMessageView } from "@appszone/shared";
+import { ExternalLink } from "lucide-react";
+import type { ApiKeyView, EmailConfigView, MailBodyType, SentMessageView } from "@appszone/shared";
 import { api } from "@/lib/api";
 import type { PaginatedResult } from "@/lib/types";
 import { Spinner } from "@/components/ui/Spinner";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { ATTACHMENT_LIMITS } from "./SendMailReference";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
@@ -285,7 +287,8 @@ export function SendMail() {
     const [subject, setSubject] = useState("");
     const [body, setBody] = useState("");
     const [apiKey, setApiKey] = useState("");
-    const [showKey, setShowKey] = useState(false);
+    const [apiKeys, setApiKeys] = useState<ApiKeyView[]>([]);
+    const [apiKeysLoading, setApiKeysLoading] = useState(true);
     const [to, setTo] = useState<string[]>([]);
     const [cc, setCc] = useState<string[]>([]);
     const [bcc, setBcc] = useState<string[]>([]);
@@ -298,6 +301,13 @@ export function SendMail() {
 
     const totalFileMb = files.reduce((s, f) => s + f.size, 0) / 1024 / 1024;
     const overFileLimit = totalFileMb > ATTACHMENT_LIMITS.maxTotalBytes / 1024 / 1024;
+
+    useEffect(() => {
+        api<PaginatedResult<ApiKeyView>>("/admin/keys?limit=100")
+            .then((r) => setApiKeys(r.data.filter((k) => k.isActive)))
+            .catch(() => undefined)
+            .finally(() => setApiKeysLoading(false));
+    }, []);
 
     function showToast(type: ToastType, title: string, bodyContent?: ReactNode) {
         setToast({ type, title, body: bodyContent });
@@ -316,7 +326,6 @@ export function SendMail() {
         setSubject("");
         setBody("");
         setApiKey("");
-        setShowKey(false);
         setTo([]);
         setCc([]);
         setBcc([]);
@@ -399,35 +408,28 @@ export function SendMail() {
     return (
         // {/* ─── Layout shell ─────────────────────────────────────────────────── */}
         <div className="w-full">
-            {/* ═══ MAIN CONTENT ═══════════════════════════════════════════════════ */}
-            {/* Top bar */}
-            <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm border-b border-slate-200/80 px-8 py-4 flex items-center justify-between">
-                <div>
-                    <h1 className="text-lg font-bold text-slate-900">Send Mail</h1>
-                    <p className="text-sm text-slate-500">Compose and queue a transactional email</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="badge-green">
-                        <span className="size-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                        API Connected
-                    </span>
-                    <a
-                        href="#api-ref"
-                        className="text-sm text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
-                    >
-                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                            />
-                        </svg>
-                        API Reference
-                    </a>
-                </div>
-            </div>
+            <PageHeader
+                title="Send Mail"
+                description="Compose and queue a transactional email"
+                breadcrumb={[{ label: "Mail Admin" }, { label: "Send Mail", active: true }]}
+                actions={
+                    <>
+                        <span className="badge-green">
+                            <span className="size-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                            API Connected
+                        </span>
+                        <a
+                            href="#api-ref"
+                            className="text-sm text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                        >
+                            <ExternalLink size={14} />
+                            API Reference
+                        </a>
+                    </>
+                }
+            />
 
-            <div className="px-8 py-8 max-w-6xl mx-auto space-y-12">
+            <div className="max-w-6xl mx-auto space-y-12">
                 {/* ── COMPOSE FORM + SIDEBAR ───────────────────────────────────── */}
                 <section className="grid grid-cols-[1fr_320px] gap-8 items-start">
                     {/* FORM CARD */}
@@ -774,56 +776,30 @@ export function SendMail() {
                                 <label className="field-label" htmlFor="apikey">
                                     API Key <span className="text-red-500">*</span>
                                 </label>
-                                <div className="relative">
-                                    <input
-                                        id="apikey"
-                                        type={showKey ? "text" : "password"}
-                                        value={apiKey}
-                                        onChange={(e) => setApiKey(e.target.value)}
-                                        placeholder="azm_live_xxxxxxxxxxxxxxxxxxxxxxxx"
-                                        className="field-input pr-10 font-mono text-xs"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowKey((v) => !v)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                    >
-                                        <svg
-                                            id="eye-icon"
-                                            className="size-4"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth="2"
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                                            />
-                                        </svg>
-                                    </button>
-                                </div>
-                                <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
-                                    <svg
-                                        className="size-3.5 shrink-0"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                                        />
-                                    </svg>
-                                    Store in a server-side env var — never expose in frontend code.
+                                <select
+                                    id="apikey"
+                                    value={apiKey}
+                                    onChange={(e) => setApiKey(e.target.value)}
+                                    className="field-input"
+                                    disabled={apiKeysLoading}
+                                >
+                                    <option value="">
+                                        {apiKeysLoading
+                                            ? "Loading API keys…"
+                                            : apiKeys.length === 0
+                                              ? "No active API keys yet — create one in API Keys"
+                                              : "— Select an API key —"}
+                                    </option>
+                                    {apiKeys.map((k) => (
+                                        <option key={k.id} value={k.secret ?? ""} disabled={!k.secret}>
+                                            {k.name} ({k.keyPrefix}…)
+                                            {!k.secret ? " — rotate to enable" : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-slate-500 mt-1.5">
+                                    Only active keys are listed here. Keys created before encrypted storage was added
+                                    show "rotate to enable" — rotate them once in API Keys to select them here.
                                 </p>
                             </div>
 

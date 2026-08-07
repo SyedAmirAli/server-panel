@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Inbox, Eye, Mail as MailIcon, RefreshCw } from "lucide-react";
-import type { MailMessageView } from "@appszone/shared";
+import type { MailboxView, MailMessageView } from "@appszone/shared";
 import { api } from "@/lib/api";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { useCursorPaginated, type CursorPage } from "@/hooks/useCursorPaginated";
@@ -15,16 +16,8 @@ import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { EmailPreviewModal } from "@/components/mail/EmailPreviewModal";
 import { DetailField, DetailGrid } from "@/components/ui/DetailField";
 import { SecretValue } from "@/components/ui/SecretValue";
+import { formatDate } from "@/lib/format";
 
-function fetcher(p: { cursor?: string; limit: number; search: string }): Promise<CursorPage<MailMessageView>> {
-    const qp = new URLSearchParams({ limit: String(p.limit) });
-    if (p.cursor) qp.set("cursor", p.cursor);
-    if (p.search) qp.set("search", p.search);
-    return api<CursorPage<MailMessageView>>(`/utility/mail-messages?${qp.toString()}`);
-}
-
-// Received column always shows the year — messages can be months/years old, and without it
-// "Aug 7, 2:30 PM" and "Aug 7, 2:30 PM" from different years look identical.
 function fmtDateTime(iso: string) {
     return new Intl.DateTimeFormat("en-US", {
         month: "short",
@@ -52,20 +45,35 @@ function recipientSummary(to: string[]) {
     return `${to[0]} +${to.length - 1}`;
 }
 
-export function MailMessages() {
+export function MailboxInbox() {
+    const { id = "" } = useParams();
+    const [mailbox, setMailbox] = useState<MailboxView | null>(null);
+
+    function fetcher(p: { cursor?: string; limit: number; search: string }): Promise<CursorPage<MailMessageView>> {
+        const qp = new URLSearchParams({ limit: String(p.limit), mailboxId: id });
+        if (p.cursor) qp.set("cursor", p.cursor);
+        if (p.search) qp.set("search", p.search);
+        return api<CursorPage<MailMessageView>>(`/utility/mail-messages?${qp.toString()}`);
+    }
+
     const { data, isLoading, isLoadingMore, hasMore, search, setSearch, loadMore, refresh } =
         useCursorPaginated(fetcher, { limit: 50 });
     const [viewing, setViewing] = useState<MailMessageView | null>(null);
     const [previewId, setPreviewId] = useState<string | null>(null);
     const [syncing, setSyncing] = useState(false);
 
-    async function syncAll() {
+    useEffect(() => {
+        if (!id) return;
+        api<MailboxView>(`/admin/mailboxes/${id}`)
+            .then(setMailbox)
+            .catch((err) => toastError(err instanceof Error ? err.message : "Could not load mailbox"));
+    }, [id]);
+
+    async function syncNow() {
         setSyncing(true);
         try {
-            const result = await api<{ mailboxes: number; imported: number }>("/admin/mailboxes/sync-all", {
-                method: "POST",
-            });
-            toastSuccess(`Synced ${result.mailboxes} mailbox(es) — ${result.imported} new message(s)`);
+            const result = await api<{ imported: number }>(`/admin/mailboxes/${id}/sync`, { method: "POST" });
+            toastSuccess(`Synced — ${result.imported} new message(s)`);
             refresh();
         } catch (err) {
             toastError(err instanceof Error ? err.message : "Sync failed");
@@ -77,9 +85,17 @@ export function MailMessages() {
     return (
         <>
             <PageHeader
-                title="Inbox"
-                description="Synced messages from all connected mailboxes, newest first, in strict chronological order regardless of which mailbox they came from. Click a row to view full message details."
-                breadcrumb={[{ label: "Mail Admin" }, { label: "Inbox", active: true }]}
+                title={mailbox?.address ?? "Mailbox inbox"}
+                description={
+                    mailbox
+                        ? `${mailbox.imapHost}:${mailbox.imapPort} · ${mailbox.isActive ? "Active" : "Inactive"} · Last synced ${formatDate(mailbox.lastSyncAt)}`
+                        : "Loading…"
+                }
+                breadcrumb={[
+                    { label: "Mail Admin" },
+                    { label: "Mailboxes" },
+                    { label: mailbox?.address ?? "Inbox", active: true },
+                ]}
                 onRefresh={refresh}
                 refreshing={isLoading}
             />
@@ -89,12 +105,12 @@ export function MailMessages() {
                     <SearchBar value={search} onChange={setSearch} placeholder="Search by sender, subject…" />
                 </div>
                 <button
-                    onClick={syncAll}
+                    onClick={syncNow}
                     disabled={syncing}
                     className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
                 >
                     {syncing ? <Spinner size="sm" /> : <RefreshCw size={15} />}
-                    Sync all mailboxes
+                    Sync now
                 </button>
             </div>
 
@@ -122,7 +138,7 @@ export function MailMessages() {
                     <EmptyState
                         icon={Inbox}
                         title="No messages"
-                        description="Messages will appear here once mailboxes are synced."
+                        description="Sync this mailbox to pull in its messages."
                     />
                 ) : (
                     <div className="overflow-x-auto">
@@ -199,11 +215,10 @@ export function MailMessages() {
                 )}
             </ListPageCard>
 
-            {/* Preview modal */}
+            {/* Details modal */}
             <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title="Message details" size="lg">
                 {viewing && (
                     <div className="space-y-3">
-                        {/* Hero */}
                         <div className="rounded-xl border border-indigo-100 bg-linear-to-br from-indigo-50 to-blue-50 px-4 py-4">
                             <p className="text-base font-semibold text-gray-900 line-clamp-2">{viewing.subject}</p>
                             <div className="mt-1.5 flex items-center gap-2">
@@ -237,15 +252,11 @@ export function MailMessages() {
                             <DetailField label="Message-ID" wide>
                                 <SecretValue value={viewing.messageId} variant="modal" />
                             </DetailField>
-                            <DetailField label="Mailbox ID" wide>
-                                <SecretValue value={viewing.mailboxId} variant="modal" />
-                            </DetailField>
                             <DetailField label="Record ID" wide>
                                 <SecretValue value={viewing.id} variant="modal" />
                             </DetailField>
                         </DetailGrid>
 
-                        {/* Snippet */}
                         {viewing.snippet && (
                             <div>
                                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">

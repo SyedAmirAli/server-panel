@@ -88,14 +88,14 @@ export function Sidebar() {
     return (
         <aside className="flex w-56 shrink-0 flex-col border-r border-gray-200 bg-white">
             {/* Logo */}
-            <div className="border-b border-indigo-700 bg-indigo-600 px-5 py-3.5">
+            <div className="flex flex-col items-center gap-1.5 border-b border-gray-200 px-5 py-4">
                 <img
-                    src="https://appszonebd.com/assets/logos/appszone-wordmark-white.svg"
-                    alt="AppsZone"
-                    className="h-5 w-auto"
+                    src="https://temporary.syedamirali.me/krishidoctor/brand/logo-horizontal.png"
+                    alt="Amir's Panel"
+                    className="h-10 w-auto max-w-full object-contain"
                     draggable={false}
                 />
-                <p className="mt-1 text-[11px] font-medium leading-none text-indigo-300">Mail</p>
+                <p className="text-[11px] font-medium leading-none text-gray-400">Admin Panel</p>
             </div>
 
             {/* Nav */}

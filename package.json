@@ -27,10 +27,14 @@
         "api:dev": "yarn workspace @appszone/api dev",
         "api:prod": "yarn workspace @appszone/api start:prod",
         "web:dev": "yarn workspace @appszone/web dev",
-        "web:prod": "yarn workspace @appszone/web start:prod"
+        "web:prod": "yarn workspace @appszone/web start:prod",
+        "dev:all": "concurrently -n api,web -c blue,magenta \"yarn api:dev\" \"yarn web:dev\""
     },
     "devDependencies": {
         "turbo": "^2.0.0",
         "typescript": "^5.5.0"
+    },
+    "dependencies": {
+        "concurrently": "^10.0.4"
     }
 }

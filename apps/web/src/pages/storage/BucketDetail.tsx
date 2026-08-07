@@ -3,31 +3,36 @@ import { useParams, Link } from "react-router-dom";
 import {
     Folder,
     FileIcon,
+    FilePlus,
     Upload,
     Trash2,
     Copy,
+    Files,
+    Hash,
     Eye,
     FileArchive,
     ChevronRight,
     HardDrive,
     Boxes,
     Database,
-    RefreshCw,
+    Lock,
+    Unlock,
     Link2 as LinkIcon,
 } from "lucide-react";
 import type { BucketStats, BucketView, StorageListEntry, StorageListResult, UploadResult } from "@appszone/shared";
 import { api } from "@/lib/api";
 import { uploadWithProgress } from "@/lib/upload";
 import { toastError, toastSuccess } from "@/lib/toast";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { ActionBtn } from "@/components/ui/ActionBtn";
+import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { CopyButton } from "@/components/ui/CopyButton";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ZipProgressModal } from "@/pages/storage/ZipProgressModal";
 
 /** Label + link + copy button, used for the upload result URLs. */
@@ -71,6 +76,34 @@ function buildEndpointUrl(bucket: BucketView, key: string): string {
 function buildPublicUrl(bucket: BucketView, key: string): string {
     if (bucket.publicBaseUrl) return `${bucket.publicBaseUrl.replace(/\/+$/, "")}/${encodeKey(key)}`;
     return buildEndpointUrl(bucket, key);
+}
+/** True if `key` (file or folder, trailing slash tolerated) falls under any locked folder prefix. */
+function isPathLocked(key: string, lockedPrefixes: string[]): boolean {
+    const k = key.replace(/\/+$/, "");
+    return lockedPrefixes.some((p) => k === p || k.startsWith(`${p}/`));
+}
+function isImageName(name: string): boolean {
+    return /\.(jpe?g|png|gif|bmp|tiff?|avif|webp)$/i.test(name);
+}
+/** Quick client-side slug preview (lowercase, dashes) — a helper the user can trigger, never forced. */
+function slugifyFileName(name: string): string {
+    const dot = name.lastIndexOf(".");
+    const base = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot).toLowerCase() : "";
+    const slug = base
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    return `${slug || "file"}${ext}`;
+}
+async function copyToClipboard(value: string, label: string) {
+    try {
+        await navigator.clipboard.writeText(value);
+        toastSuccess(`${label} copied`);
+    } catch {
+        toastError("Copy failed — select text manually");
+    }
 }
 
 /** Popup showing an object's URLs (public/CDN, provider endpoint, and a fresh presigned link). */
@@ -134,6 +167,222 @@ function ObjectLinksModal({
 const inputCls =
     "h-9 w-full rounded-lg border border-gray-200 px-3 text-sm placeholder-gray-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100";
 
+interface CopyOptions {
+    destPrefix: string;
+    newName?: string;
+    convertToWebp?: boolean;
+    quality?: number;
+}
+
+/** Copy-with-options popup: destination folder (root-relative or nested under the current folder), rename, WebP conversion. */
+function CopyModal({
+    entry,
+    currentFolder,
+    busy,
+    onClose,
+    onConfirm,
+}: {
+    entry: StorageListEntry;
+    currentFolder: string;
+    busy: boolean;
+    onClose: () => void;
+    onConfirm: (opts: CopyOptions) => void;
+}) {
+    const [fromRoot, setFromRoot] = useState(false);
+    const [folderPath, setFolderPath] = useState("");
+    const [newName, setNewName] = useState("");
+    const [convertToWebp, setConvertToWebp] = useState(false);
+    const [quality, setQuality] = useState(80);
+
+    const canConvert = isImageName(entry.name);
+    const destPrefix = fromRoot
+        ? folderPath.trim()
+        : [currentFolder, folderPath.trim()].filter(Boolean).join("/");
+
+    return (
+        <Modal isOpen onClose={onClose} title="Copy file" size="md">
+            <div className="space-y-4">
+                <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2 text-sm text-gray-700">
+                    <code className="font-mono text-xs">{entry.key}</code>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-gray-600">
+                    <input type="checkbox" checked={fromRoot} onChange={(e) => setFromRoot(e.target.checked)} />
+                    Destination path is from bucket root
+                </label>
+
+                <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        Destination folder{" "}
+                        <span className="font-normal text-gray-400">
+                            {fromRoot
+                                ? "optional — absolute path from root, blank = root"
+                                : `optional — nested under "${currentFolder || "root"}"`}
+                        </span>
+                    </label>
+                    <input
+                        className={inputCls}
+                        value={folderPath}
+                        onChange={(e) => setFolderPath(e.target.value)}
+                        placeholder={fromRoot ? "documents/archive" : "archive"}
+                    />
+                    <p className="mt-1 truncate text-[11px] text-gray-400" title={destPrefix}>
+                        Resolves to: <code>{destPrefix || "(bucket root)"}</code>
+                    </p>
+                </div>
+
+                <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        New file name <span className="font-normal text-gray-400">optional — keeps "{entry.name}" (with a -copy suffix) if blank</span>
+                    </label>
+                    <input className={inputCls} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="renamed-file" />
+                </div>
+
+                {canConvert && (
+                    <div className="space-y-2 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+                        <label className="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" checked={convertToWebp} onChange={(e) => setConvertToWebp(e.target.checked)} /> Convert copy to WebP
+                        </label>
+                        {convertToWebp && (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <span>Quality</span>
+                                <input type="range" min={1} max={100} value={quality} onChange={(e) => setQuality(Number(e.target.value))} className="flex-1" />
+                                <span className="w-8 text-right font-medium">{quality}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                    <button onClick={onClose} disabled={busy} className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => onConfirm({ destPrefix, newName: newName.trim() || undefined, convertToWebp: canConvert && convertToWebp, quality })}
+                        disabled={busy}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        {busy && <Spinner size="sm" />}
+                        Copy
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
+/** Re-authentication popup shown before removing a folder's delete-protection. */
+function UnlockModal({
+    prefix,
+    busy,
+    onClose,
+    onConfirm,
+}: {
+    prefix: string;
+    busy: boolean;
+    onClose: () => void;
+    onConfirm: (password: string) => void;
+}) {
+    const [password, setPassword] = useState("");
+    return (
+        <Modal isOpen onClose={onClose} title="Unlock folder" size="sm">
+            <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                    Removing delete-protection from <strong>{prefix}</strong> requires the admin password.
+                </p>
+                <PasswordInput value={password} onChange={setPassword} placeholder="Admin password" />
+                <div className="flex gap-2 pt-1">
+                    <button onClick={onClose} disabled={busy} className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => onConfirm(password)}
+                        disabled={busy || !password}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        {busy && <Spinner size="sm" />}
+                        Unlock
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
+/** Create a file at an exact name, with optional text content — Slugify is a one-click helper, never enforced. */
+function CreateFileModal({
+    folder,
+    busy,
+    onClose,
+    onCreate,
+}: {
+    folder: string;
+    busy: boolean;
+    onClose: () => void;
+    onCreate: (name: string, content: string) => void;
+}) {
+    const [name, setName] = useState("");
+    const [content, setContent] = useState("");
+    return (
+        <Modal isOpen onClose={onClose} title="Create file" size="md">
+            <div className="space-y-4">
+                <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        File name <span className="font-normal text-gray-400">with extension, e.g. "notes.txt"</span>
+                    </label>
+                    <div className="flex gap-2">
+                        <input
+                            autoFocus
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="My Notes (draft).txt"
+                            className="h-9 w-full rounded-lg border border-gray-200 px-3 text-sm placeholder-gray-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setName((n) => slugifyFileName(n))}
+                            disabled={!name.trim()}
+                            title="Convert to a URL-safe slug (optional — not required)"
+                            className="shrink-0 rounded-lg border border-gray-200 px-3 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                            Slugify
+                        </button>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-gray-400">
+                        Creates a file in <code className="font-mono">{folder || "root"}</code>. Spaces and special
+                        characters are fine — Slugify is just a shortcut if you want a clean name.
+                    </p>
+                </div>
+                <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        Content <span className="font-normal text-gray-400">optional — leave blank for an empty file</span>
+                    </label>
+                    <textarea
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        placeholder="Type the file's contents…"
+                        rows={10}
+                        className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs placeholder-gray-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                </div>
+                <div className="flex gap-2 pt-1">
+                    <button onClick={onClose} disabled={busy} className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => onCreate(name.trim(), content)}
+                        disabled={busy || !name.trim()}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        {busy && <Spinner size="sm" />}
+                        Create
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
 export function BucketDetail() {
     const { publicId = "" } = useParams();
     const [bucket, setBucket] = useState<BucketView | null>(null);
@@ -146,10 +395,16 @@ export function BucketDetail() {
     const [folderSizes, setFolderSizes] = useState<Record<string, number | null>>({});
     const [linkEntry, setLinkEntry] = useState<StorageListEntry | null>(null);
     const [uploadOpen, setUploadOpen] = useState(false);
+    const [createFileOpen, setCreateFileOpen] = useState(false);
+    const [creatingFile, setCreatingFile] = useState(false);
     const [zipPrefix, setZipPrefix] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
     const [deleting, setDeleting] = useState(false);
     const [busyKey, setBusyKey] = useState<string | null>(null);
+    const [copyEntry, setCopyEntry] = useState<StorageListEntry | null>(null);
+    const [copying, setCopying] = useState(false);
+    const [unlockTarget, setUnlockTarget] = useState<string | null>(null); // prefix pending unlock
+    const [unlocking, setUnlocking] = useState(false);
 
     const loadBucket = useCallback(async () => {
         try {
@@ -264,20 +519,46 @@ export function BucketDetail() {
         }
     }
 
-    /** Server-side duplicate the object in the bucket (creates a "-copy" file). */
-    async function duplicateFile(entry: StorageListEntry) {
-        setBusyKey(entry.key);
+    /** Server-side copy the object into a chosen destination, optionally renamed / converted to WebP. */
+    async function confirmCopy(opts: CopyOptions) {
+        if (!copyEntry) return;
+        setCopying(true);
         try {
             await api(`/admin/storage/buckets/${publicId}/objects/copy`, {
                 method: "POST",
-                body: { sourceKey: entry.key },
+                body: {
+                    sourceKey: copyEntry.key,
+                    destPrefix: opts.destPrefix,
+                    newName: opts.newName,
+                    convertToWebp: opts.convertToWebp,
+                    quality: opts.quality,
+                },
             });
-            toastSuccess("Duplicated");
+            toastSuccess("Copied");
+            setCopyEntry(null);
             loadListing();
         } catch (err) {
-            toastError(err instanceof Error ? err.message : "Duplicate failed");
+            toastError(err instanceof Error ? err.message : "Copy failed");
         } finally {
-            setBusyKey(null);
+            setCopying(false);
+        }
+    }
+
+    /** Create a file at the exact typed name (no forced slugify), with optional text content, in the current folder. */
+    async function createFile(name: string, content: string) {
+        setCreatingFile(true);
+        try {
+            await api(`/admin/storage/buckets/${publicId}/objects/create-file`, {
+                method: "POST",
+                body: { prefix, name, content: content || undefined },
+            });
+            toastSuccess(`"${name}" created`);
+            setCreateFileOpen(false);
+            loadListing();
+        } catch (err) {
+            toastError(err instanceof Error ? err.message : "Could not create file");
+        } finally {
+            setCreatingFile(false);
         }
     }
 
@@ -295,7 +576,41 @@ export function BucketDetail() {
         }
     }
 
+    /** Delete-protect a folder. Free/idempotent — no confirmation needed. */
+    async function lockFolder(entry: StorageListEntry) {
+        const folderPrefix = entry.key.replace(/\/+$/, "");
+        setBusyKey(entry.key);
+        try {
+            await api(`/admin/storage/buckets/${publicId}/lock`, { method: "POST", body: { prefix: folderPrefix } });
+            toastSuccess(`Locked "${folderPrefix}"`);
+            loadBucket();
+        } catch (err) {
+            toastError(err instanceof Error ? err.message : "Lock failed");
+        } finally {
+            setBusyKey(null);
+        }
+    }
+
+    async function confirmUnlock(password: string) {
+        if (!unlockTarget) return;
+        setUnlocking(true);
+        try {
+            await api(`/admin/storage/buckets/${publicId}/unlock`, {
+                method: "POST",
+                body: { prefix: unlockTarget, password },
+            });
+            toastSuccess(`Unlocked "${unlockTarget}"`);
+            setUnlockTarget(null);
+            loadBucket();
+        } catch (err) {
+            toastError(err instanceof Error ? err.message : "Unlock failed — check the password");
+        } finally {
+            setUnlocking(false);
+        }
+    }
+
     const crumbs = prefix ? prefix.split("/") : [];
+    const lockedPrefixes = bucket?.lockedPrefixes ?? [];
 
     return (
         <>
@@ -376,6 +691,12 @@ export function BucketDetail() {
                         <FileArchive size={15} /> {prefix ? "Download folder" : "Download bucket"}
                     </button>
                     <button
+                        onClick={() => setCreateFileOpen(true)}
+                        className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                        <FilePlus size={15} /> Create file
+                    </button>
+                    <button
                         onClick={() => setUploadOpen(true)}
                         className="flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
                     >
@@ -402,83 +723,133 @@ export function BucketDetail() {
                                 <th className="sticky top-0 z-10 w-28 border-b border-gray-100 bg-gray-50 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                                     Size
                                 </th>
-                                <th className="sticky top-0 z-10 w-32 border-b border-gray-100 bg-gray-50 px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-400"></th>
+                                <th className="sticky top-0 z-10 w-32 border-b border-gray-100 bg-gray-50 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                                    Modified
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {listing.entries.map((entry) => (
-                                <tr key={entry.key} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="px-4 py-3">
-                                        {entry.type === "folder" ? (
-                                            <button
-                                                onClick={() => setPrefix(entry.key.replace(/\/$/, ""))}
-                                                title={entry.name}
-                                                className="flex w-full items-center gap-2 font-medium text-gray-900 hover:text-indigo-600"
-                                            >
-                                                <Folder size={15} className="shrink-0 text-indigo-400" />
-                                                <span className="truncate">{entry.name}</span>
-                                            </button>
-                                        ) : (
-                                            <span className="flex items-center gap-2 text-gray-700" title={entry.name}>
-                                                <FileIcon size={15} className="shrink-0 text-gray-400" />
-                                                <span className="truncate">{entry.name}</span>
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-4 py-3 text-gray-500 text-nowrap">
-                                        {entry.type === "file"
-                                            ? formatBytes(entry.size ?? 0)
-                                            : folderSizes[entry.key] === undefined || folderSizes[entry.key] === null
-                                              ? "…"
-                                              : folderSizes[entry.key] === -1
-                                                ? "—"
-                                                : formatBytes(folderSizes[entry.key] as number)}
-                                    </td>
-                                    <td className="px-4 py-3 text-right">
-                                        <div className="flex items-center justify-end gap-0.5">
-                                            {entry.type === "file" && (
-                                                <>
-                                                    <ActionBtn
-                                                        icon={Eye}
-                                                        label="Preview"
-                                                        variant="edit"
-                                                        loading={busyKey === entry.key}
-                                                        onClick={() => previewFile(entry)}
-                                                    />
-                                                    <ActionBtn
-                                                        icon={LinkIcon}
-                                                        label="Get links"
-                                                        variant="copy"
-                                                        onClick={() => setLinkEntry(entry)}
-                                                    />
-                                                    <ActionBtn
-                                                        icon={Copy}
-                                                        label="Duplicate"
-                                                        variant="rotate"
-                                                        loading={busyKey === entry.key}
-                                                        onClick={() => duplicateFile(entry)}
-                                                    />
-                                                </>
-                                            )}
-                                            {entry.type === "folder" && (
-                                                <ActionBtn
-                                                    icon={FileArchive}
-                                                    label="Download folder (ZIP)"
-                                                    variant="rotate"
-                                                    onClick={() => setZipPrefix(entry.key.replace(/\/$/, ""))}
-                                                />
-                                            )}
-                                            <ActionBtn
-                                                icon={busyKey === entry.key ? RefreshCw : Trash2}
-                                                label="Delete"
-                                                variant="delete"
-                                                loading={busyKey === entry.key}
-                                                onClick={() => requestDelete(entry)}
-                                            />
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                            {listing.entries.map((entry) => {
+                                const folderPrefix = entry.key.replace(/\/+$/, "");
+                                const locked = isPathLocked(entry.key, lockedPrefixes);
+                                const isLockedFolder = entry.type === "folder" && lockedPrefixes.includes(folderPrefix);
+                                const items: RowMenuItem[] = [];
+
+                                if (entry.type === "file") {
+                                    items.push({
+                                        key: "preview",
+                                        label: "Preview",
+                                        icon: Eye,
+                                        loading: busyKey === entry.key,
+                                        onClick: () => previewFile(entry),
+                                    });
+                                }
+                                items.push({
+                                    key: "copy-path",
+                                    label: "Copy path",
+                                    icon: Copy,
+                                    onClick: () => copyToClipboard(entry.key, "Path"),
+                                });
+                                if (bucket) {
+                                    items.push({
+                                        key: "copy-bucket-id",
+                                        label: "Copy bucket ID",
+                                        icon: Hash,
+                                        onClick: () => copyToClipboard(bucket.publicId, "Bucket ID"),
+                                    });
+                                }
+                                if (entry.type === "file" && bucket) {
+                                    items.push({
+                                        key: "copy-url",
+                                        label: "Copy public URL",
+                                        icon: LinkIcon,
+                                        onClick: () => copyToClipboard(buildPublicUrl(bucket, entry.key), "URL"),
+                                    });
+                                    items.push({
+                                        key: "links",
+                                        label: "Get links",
+                                        icon: LinkIcon,
+                                        onClick: () => setLinkEntry(entry),
+                                    });
+                                    items.push({
+                                        key: "copy-file",
+                                        label: "Copy…",
+                                        icon: Files,
+                                        onClick: () => setCopyEntry(entry),
+                                    });
+                                }
+                                if (entry.type === "folder") {
+                                    items.push({
+                                        key: "zip",
+                                        label: "Download folder (ZIP)",
+                                        icon: FileArchive,
+                                        onClick: () => setZipPrefix(folderPrefix),
+                                    });
+                                    items.push(
+                                        isLockedFolder
+                                            ? {
+                                                  key: "unlock",
+                                                  label: "Unlock folder",
+                                                  icon: Unlock,
+                                                  onClick: () => setUnlockTarget(folderPrefix),
+                                              }
+                                            : {
+                                                  key: "lock",
+                                                  label: "Lock folder (disable delete)",
+                                                  icon: Lock,
+                                                  loading: busyKey === entry.key,
+                                                  onClick: () => lockFolder(entry),
+                                              }
+                                    );
+                                }
+                                items.push({
+                                    key: "delete",
+                                    label: "Delete",
+                                    icon: Trash2,
+                                    tone: "danger",
+                                    loading: busyKey === entry.key,
+                                    disabled: locked,
+                                    disabledReason: "Locked — unlock the folder to delete",
+                                    onClick: () => requestDelete(entry),
+                                });
+
+                                return (
+                                    <tr key={entry.key} className="hover:bg-gray-50/50 transition-colors">
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-1">
+                                                <RowMenu items={items} align="left" />
+                                                {entry.type === "folder" ? (
+                                                    <button
+                                                        onClick={() => setPrefix(entry.key.replace(/\/$/, ""))}
+                                                        title={entry.name}
+                                                        className="flex min-w-0 flex-1 items-center gap-2 font-medium text-gray-900 hover:text-indigo-600"
+                                                    >
+                                                        <Folder size={15} className="shrink-0 text-indigo-400" />
+                                                        <span className="truncate">{entry.name}</span>
+                                                    </button>
+                                                ) : (
+                                                    <span className="flex min-w-0 flex-1 items-center gap-2 text-gray-700" title={entry.name}>
+                                                        <FileIcon size={15} className="shrink-0 text-gray-400" />
+                                                        <span className="truncate">{entry.name}</span>
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-500 text-nowrap">
+                                            {entry.type === "file"
+                                                ? formatBytes(entry.size ?? 0)
+                                                : folderSizes[entry.key] === undefined || folderSizes[entry.key] === null
+                                                  ? "…"
+                                                  : folderSizes[entry.key] === -1
+                                                    ? "—"
+                                                    : formatBytes(folderSizes[entry.key] as number)}
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-500 text-nowrap">
+                                            {entry.type === "file" ? formatDate(entry.lastModified) : "—"}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 )}
@@ -493,6 +864,15 @@ export function BucketDetail() {
                         loadListing();
                         loadStats();
                     }}
+                />
+            )}
+
+            {createFileOpen && (
+                <CreateFileModal
+                    folder={prefix}
+                    busy={creatingFile}
+                    onClose={() => setCreateFileOpen(false)}
+                    onCreate={createFile}
                 />
             )}
 
@@ -528,6 +908,25 @@ export function BucketDetail() {
                     publicId={publicId}
                     entry={linkEntry}
                     onClose={() => setLinkEntry(null)}
+                />
+            )}
+
+            {copyEntry && (
+                <CopyModal
+                    entry={copyEntry}
+                    currentFolder={prefix}
+                    busy={copying}
+                    onClose={() => setCopyEntry(null)}
+                    onConfirm={confirmCopy}
+                />
+            )}
+
+            {unlockTarget !== null && (
+                <UnlockModal
+                    prefix={unlockTarget}
+                    busy={unlocking}
+                    onClose={() => setUnlockTarget(null)}
+                    onConfirm={confirmUnlock}
                 />
             )}
 

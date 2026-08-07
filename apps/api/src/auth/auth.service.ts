@@ -14,7 +14,6 @@ export class AuthService {
     ) {}
 
     async login(password: string, headers?: any): Promise<AdminLoginResponse> {
-        const expected = this.config.get<string>("ADMIN_PASSWORD") ?? "";
         const ip = headers?.["x-forwarded-for"] ?? headers?.["cf-connecting-ip"] ?? headers?.["x-real-ip"] ?? null;
         const userAgent = headers?.["user-agent"] ?? null;
 
@@ -28,7 +27,7 @@ export class AuthService {
             metadata: { password: password, expected: "********" },
         };
 
-        if (!expected || !this.safeEqual(password, expected)) {
+        if (!(await this.verifyAdminPassword(password))) {
             // create a audit log for the failed login
             await this.prisma.auditLog.create({
                 data: {
@@ -58,6 +57,12 @@ export class AuthService {
         });
 
         return { token, expiresIn };
+    }
+
+    /** Verifies a password against ADMIN_PASSWORD; reused wherever admin re-authentication is required. */
+    async verifyAdminPassword(password: string): Promise<boolean> {
+        const expected = this.config.get<string>("ADMIN_PASSWORD") ?? "";
+        return !!expected && this.safeEqual(password, expected);
     }
 
     /** Constant-time string compare (avoids leaking length-independent timing). */

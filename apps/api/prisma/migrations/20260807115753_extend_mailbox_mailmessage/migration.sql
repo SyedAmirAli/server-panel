@@ -1,0 +1,14 @@
+-- AlterTable
+ALTER TABLE `mail_messages` ADD COLUMN `attachments` JSON NULL,
+    ADD COLUMN `bcc` JSON NULL,
+    ADD COLUMN `cc` JSON NULL,
+    ADD COLUMN `flags` JSON NULL;
+
+-- AlterTable
+ALTER TABLE `mailboxes` ADD COLUMN `displayName` VARCHAR(191) NULL,
+    ADD COLUMN `imapPort` INTEGER NOT NULL DEFAULT 993,
+    ADD COLUMN `imapSecure` BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN `lastSyncAt` DATETIME(3) NULL,
+    ADD COLUMN `lastSyncError` TEXT NULL,
+    ADD COLUMN `smtpPort` INTEGER NOT NULL DEFAULT 587,
+    ADD COLUMN `smtpSecure` BOOLEAN NOT NULL DEFAULT false;

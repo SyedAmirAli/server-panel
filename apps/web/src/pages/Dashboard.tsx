@@ -16,12 +16,14 @@ import {
     ScrollText,
     Send,
     Server,
+    Sparkles,
 } from "lucide-react";
 import type { DashboardPresetPeriod, DashboardStats } from "@appszone/shared";
 import { api } from "@/lib/api";
-import { toastError } from "@/lib/toast";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
+import aiIntegrationPrompt from "../../../../docs/ai-integration-prompt.md?raw";
 
 const PERIODS: { id: DashboardPresetPeriod; label: string }[] = [
     { id: "today", label: "Today" },
@@ -180,6 +182,19 @@ export function Dashboard() {
     function selectPeriod(next: DashboardPresetPeriod) {
         setPeriod(next);
         setOffset(0);
+    }
+
+    /** Copies a ready-to-paste AI prompt (real API reference + explicit "ask the user for credentials" instructions). */
+    async function copyAiPrompt() {
+        const apiBasePath = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+        const baseUrl = apiBasePath.startsWith("http") ? apiBasePath : `${window.location.origin}${apiBasePath}`;
+        const prompt = aiIntegrationPrompt.replace(/\{BASE_URL\}/g, baseUrl);
+        try {
+            await navigator.clipboard.writeText(prompt);
+            toastSuccess("AI integration prompt copied — paste it into ChatGPT, Claude, or your coding agent");
+        } catch {
+            toastError("Copy failed — select text manually");
+        }
     }
 
     const canNavigate = period !== "all";
@@ -413,6 +428,15 @@ export function Dashboard() {
                                 <Activity size={15} />
                                 API docs
                             </Link>
+                            <button
+                                type="button"
+                                onClick={copyAiPrompt}
+                                title="Copy a ready-to-paste prompt that walks an AI assistant through integrating this API — it will ask you for your API key and other details in chat"
+                                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                            >
+                                <Sparkles size={15} />
+                                Copy AI prompt
+                            </button>
                         </div>
                     </section>
                 </div>

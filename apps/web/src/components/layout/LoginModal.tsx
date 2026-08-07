@@ -29,13 +29,13 @@ export function LoginModal() {
                 <div className="mb-8 flex flex-col items-center text-center">
                     <div className="mb-5 flex items-center justify-center rounded-2xl bg-indigo-600 px-6 py-3.5 shadow-lg shadow-indigo-200/60">
                         <img
-                            src="https://appszonebd.com/assets/logos/appszone-wordmark-white.svg"
-                            alt="AppsZone"
+                            src="https://temporary.syedamirali.me/krishidoctor/brand/logo-horizontal.png"
+                            alt="Amir's Panel"
                             className="h-6 w-auto"
                             draggable={false}
                         />
                     </div>
-                    <h1 className="text-lg font-semibold text-gray-900">Mail Admin</h1>
+                    <h1 className="text-lg font-semibold text-gray-900">Amir's Panel</h1>
                     <p className="mt-1 text-sm text-gray-500">Sign in to your admin panel</p>
                 </div>
 

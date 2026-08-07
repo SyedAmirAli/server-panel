@@ -15,6 +15,8 @@ interface PageHeaderProps {
   onRefresh?: () => void;
   refreshing?: boolean;
   nav?: ReactNode;
+  /** Right-aligned extras next to the title — status badges, reference links, icon buttons. */
+  actions?: ReactNode;
 }
 
 export function PageHeader({
@@ -25,6 +27,7 @@ export function PageHeader({
   onRefresh,
   refreshing,
   nav,
+  actions,
 }: PageHeaderProps) {
   const desc = description ?? subtitle;
   return (
@@ -81,6 +84,8 @@ export function PageHeader({
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-gray-500">{desc}</p>
           )}
         </div>
+
+        {actions && <div className="flex shrink-0 items-center gap-2 pt-1">{actions}</div>}
       </div>
     </div>
   );
