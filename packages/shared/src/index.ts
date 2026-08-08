@@ -346,3 +346,6 @@ export interface DashboardStats {
     sentQueued: number;
   };
 }
+
+/* ─── Job Finder / Job Application Assistant ─────────────────── */
+export * from "./job-finder";

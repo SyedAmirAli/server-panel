@@ -10,6 +10,9 @@ import { AuditLog } from "@/pages/AuditLog";
 import { SentMessages } from "@/pages/SentMessages";
 import { Mailboxes } from "@/pages/Mailboxes";
 import { ApiDocs } from "@/pages/ApiDocs";
+import { FoundJobs } from "@/pages/jobs/FoundJobs";
+import { JobDetail } from "@/pages/jobs/JobDetail";
+import { JobFinderSettings } from "@/pages/jobs/JobFinderSettings";
 import { Buckets } from "@/pages/storage/Buckets";
 import { BucketDetail } from "@/pages/storage/BucketDetail";
 import { StorageKeys } from "@/pages/storage/StorageKeys";
@@ -25,6 +28,9 @@ export const router = createBrowserRouter([
             { path: "mailboxes/:id/inbox", element: <MailboxInbox /> },
             { path: "keys", element: <ApiKeys /> },
             { path: "email-configs", element: <EmailConfigs /> },
+            { path: "jobs", element: <FoundJobs /> },
+            { path: "jobs/settings", element: <JobFinderSettings /> },
+            { path: "jobs/:id", element: <JobDetail /> },
             { path: "storage", element: <Buckets /> },
             { path: "storage/keys", element: <StorageKeys /> },
             { path: "storage/:publicId", element: <BucketDetail /> },

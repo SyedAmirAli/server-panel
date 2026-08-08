@@ -11,6 +11,8 @@ import {
     Database,
     KeyRound,
     BookOpen,
+    Briefcase,
+    SlidersHorizontal,
     LogOut,
     type LucideIcon,
 } from "lucide-react";
@@ -32,6 +34,11 @@ const mailItems: NavItemDef[] = [
 const adminItems: NavItemDef[] = [
     { to: "/keys", label: "API Keys", icon: Key },
     { to: "/email-configs", label: "Email Configs", icon: Server },
+];
+
+const jobItems: NavItemDef[] = [
+    { to: "/jobs", label: "Found Jobs", icon: Briefcase, end: true },
+    { to: "/jobs/settings", label: "Job Settings", icon: SlidersHorizontal },
 ];
 
 const storageItems: NavItemDef[] = [
@@ -102,6 +109,7 @@ export function Sidebar() {
             <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
                 <NavSection label="Mail" items={mailItems} />
                 <NavSection label="Admin" items={adminItems} />
+                <NavSection label="Job Finder" items={jobItems} />
                 <NavSection label="Storage" items={storageItems} />
                 <NavSection label="Logs" items={logItems} />
                 <NavSection label="Docs" items={[{ to: "/docs", label: "API Docs", icon: BookOpen }]} />

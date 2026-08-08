@@ -9,6 +9,7 @@ import { MailsModule } from "@/modules/mails/mails.module";
 import { EmailConfigsModule } from "@/modules/email-configs/email-configs.module";
 import { StorageModule } from "@/modules/storage/storage.module";
 import { MailboxesModule } from "@/modules/mailboxes/mailboxes.module";
+import { JobFinderModule } from "@/modules/job-finder/job-finder.module";
 import { HealthController } from "@/health.controller";
 import { UtilityModule } from './modules/utility/utility.module';
 
@@ -23,6 +24,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     EmailConfigsModule,
     StorageModule,
     MailboxesModule,
+    JobFinderModule,
     UtilityModule,
   ],
   controllers: [HealthController],

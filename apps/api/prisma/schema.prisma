@@ -217,3 +217,259 @@ model StorageObject {
   @@index([createdAt])
   @@map("storage_objects")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job Finder / Job Application Assistant
+//
+// Fully additive module. Nothing above this line is modified by it. The link to
+// SentMessage (JobApplication.sentMessageId) is deliberately a loose string
+// rather than a relation, so the existing SentMessage model stays untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Normalized, source-of-truth candidate representation. Imported *from* the
+/// resume repo (which is never written to) and then used for matching and
+/// application generation.
+model CandidateProfile {
+  id           String  @id @default(cuid())
+  name         String  @db.VarChar(191)
+  headline     String? @db.Text
+  email        String? @db.VarChar(191)
+  phone        String? @db.VarChar(64)
+  location     String? @db.VarChar(191)
+  timezone     String? @db.VarChar(64)
+  availability String? @db.Text
+  summary      String? @db.Text
+
+  // MySQL has no scalar list type — normalized collections are stored as Json.
+  titles         Json // string[]
+  skills         Json // [{ name, category?, highlighted? }]
+  experience     Json // [{ company, position, period, location?, points[], stack[]? }]
+  education      Json // [{ institution, degree, period, location? }]
+  projects       Json // [{ name, description, stack[], metrics[]? }]
+  certifications Json?
+  languages      Json?
+  links          Json? // [{ label, url }] — kept for reference; never emitted into emails
+
+  // Provenance of the import, so a re-import can detect drift without guessing.
+  sourceType String  @default("repo") @db.VarChar(32) // repo | pdf | paste
+  sourcePath String? @db.Text
+  sourceHash String? @db.VarChar(128) // sha256 of the raw source at import time
+  rawSource  String? @db.LongText
+
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches      JobMatch[]
+  applications JobApplication[]
+
+  @@index([isDefault])
+  @@map("candidate_profiles")
+}
+
+/// A pluggable discovery adapter (free board API, grounded web search, URL
+/// import, LinkedIn alert-email parser, Adzuna…). Rows are seeded on boot;
+/// `isActive` and `config` are admin-editable.
+model JobSource {
+  id      String @id @default(cuid())
+  key     String @unique @db.VarChar(64) // remotive | remoteok | arbeitnow | jobicy | websearch | url-import | linkedin-email | adzuna
+  name    String @db.VarChar(120)
+  adapter String @db.VarChar(64)
+
+  isActive Boolean @default(true)
+  config   Json? // adapter-specific: queries[], locations[], remoteOnly, mailboxId, model…
+
+  /// Adapters needing keys (Adzuna) ship disabled until the env vars are present.
+  requiresCredentials Boolean @default(false)
+  credentialsReady    Boolean @default(true)
+
+  lastRunAt     DateTime?
+  lastRunStatus String?   @db.VarChar(32)
+  lastRunError  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postings JobPosting[]
+
+  @@index([isActive])
+  @@map("job_sources")
+}
+
+/// A single normalized job posting, deduplicated across every source.
+model JobPosting {
+  id         String     @id @default(cuid())
+  sourceId   String?
+  source     JobSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  externalId String?    @db.VarChar(191) // provider's own id, when it has one
+
+  /// sha256(normalized company | title | canonical url) — the cross-source dedupe key.
+  dedupeHash String @unique @db.VarChar(64)
+
+  title          String  @db.VarChar(255)
+  company        String  @db.VarChar(191)
+  companyUrl     String? @db.Text
+  location       String? @db.VarChar(191)
+  isRemote       Boolean @default(false)
+  employmentType String? @db.VarChar(64)
+
+  salaryRaw String? @db.VarChar(191)
+  salaryMin Int?
+  salaryMax Int?
+  currency  String? @db.VarChar(8)
+
+  url          String  @db.Text
+  applyUrl     String? @db.Text
+  applyEmail   String? @db.VarChar(191)
+  description  String? @db.LongText
+  tags         Json?
+  requirements Json?
+
+  postedAt     DateTime? // provider-reported publish time; drives the 24h window
+  discoveredAt DateTime  @default(now())
+  expiresAt    DateTime?
+
+  /// new | scored | shortlisted | applied | dismissed | archived
+  status String @default("new") @db.VarChar(32)
+
+  raw Json? // untouched provider payload, for debugging adapters
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches      JobMatch[]
+  applications JobApplication[]
+
+  @@index([postedAt])
+  @@index([status])
+  @@index([sourceId])
+  @@index([discoveredAt])
+  @@map("job_postings")
+}
+
+/// LLM-produced fit assessment of one posting against one candidate profile.
+model JobMatch {
+  id        String           @id @default(cuid())
+  postingId String
+  posting   JobPosting       @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  stars   Int // 1–5, what the list UI renders
+  score   Int // 0–100, the finer-grained ordering key behind the stars
+  verdict String? @db.VarChar(64) // strong | good | stretch | weak
+  summary String? @db.Text
+
+  strengths     Json? // string[] — evidence drawn only from the profile
+  gaps          Json? // string[] — JD requirements the profile does not show
+  matchedSkills Json?
+  missingSkills Json?
+
+  model    String?  @db.VarChar(120)
+  scoredAt DateTime @default(now())
+
+  @@unique([postingId, profileId])
+  @@index([stars])
+  @@map("job_matches")
+}
+
+/// A generated application (email draft by default), following the rules in the
+/// resume repo's skills/job-application.md.
+model JobApplication {
+  id        String           @id @default(cuid())
+  postingId String
+  posting   JobPosting       @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// draft | ready | sent | replied | rejected
+  status  String @default("draft") @db.VarChar(32)
+  channel String @default("email") @db.VarChar(32) // email | url
+
+  toEmail  String? @db.VarChar(191)
+  subject  String? @db.Text
+  body     String? @db.LongText
+  /// Gaps are reported to the candidate, never written into the email body.
+  gapsNote String? @db.Text
+
+  model String? @db.VarChar(120)
+
+  /// Loose reference to SentMessage.id — intentionally not a relation, so the
+  /// existing SentMessage model needs no back-reference.
+  sentMessageId String?
+  sentAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([postingId])
+  @@map("job_applications")
+}
+
+/// One execution of the discovery pipeline — cron or "Find Now".
+model JobRun {
+  id      String @id @default(cuid())
+  trigger String @db.VarChar(32) // manual | cron
+  /// running | success | partial | failed | cancelled
+  status  String @default("running") @db.VarChar(32)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  sourcesRun Json? // string[] of JobSource.key actually executed
+  stats      Json? // { discovered, deduped, inserted, scored, errors }
+  error      String? @db.Text
+
+  logs JobRunLog[]
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("job_runs")
+}
+
+/// Append-only log line for a run — this is what the terminal view streams.
+model JobRunLog {
+  id    String @id @default(cuid())
+  runId String
+  run   JobRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  seq     Int // monotonic within a run, so the terminal can order/resume
+  level   String  @default("info") @db.VarChar(16) // debug | info | warn | error | success
+  source  String? @db.VarChar(64) // JobSource.key, when attributable
+  message String  @db.Text
+  data    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([runId, seq])
+  @@map("job_run_logs")
+}
+
+/// Single-row settings for the module (schedule, thresholds, model choices).
+model JobFinderSetting {
+  id String @id @default("default")
+
+  cronEnabled    Boolean @default(false)
+  cronExpression String  @default("0 */6 * * *") @db.VarChar(64)
+
+  lookbackHours Int @default(24) // the "posted in the last 24h" window
+  minStars      Int @default(3) // below this, postings are kept but not surfaced by default
+  maxJobsPerRun Int @default(60)
+
+  scoringModel String @default("auto/best-fast") @db.VarChar(120)
+  writingModel String @default("auto/best-coding") @db.VarChar(120)
+  /// Used by the URL importer to normalize a fetched job page into a posting.
+  extractionModel String @default("auto/best-fast") @db.VarChar(120)
+
+  keywords         Json? // string[] — role queries fanned out to search adapters
+  locations        Json? // string[]
+  excludeCompanies Json? // string[]
+
+  activeProfileId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("job_finder_settings")
+}

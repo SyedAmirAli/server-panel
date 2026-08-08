@@ -102,14 +102,20 @@ export class UtilityService {
         limit?: number;
         search?: string;
         mailboxId?: string;
-    }): Promise<{ data: MailMessageView[]; nextCursor: string | null }> {
+    }): Promise<{ data: MailMessageView[]; nextCursor: string | null; total: number }> {
         const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
 
-        const and: Prisma.MailMessageWhereInput[] = [];
-        if (opts.mailboxId) and.push({ mailboxId: opts.mailboxId });
+        // Base filter (mailbox + search) shared by the page query and the total count —
+        // the cursor condition is added only to the page query below, since the total
+        // must reflect the whole matching set regardless of scroll position.
+        const baseAnd: Prisma.MailMessageWhereInput[] = [];
+        if (opts.mailboxId) baseAnd.push({ mailboxId: opts.mailboxId });
         if (opts.search) {
-            and.push({ OR: [{ from: { contains: opts.search } }, { subject: { contains: opts.search } }] });
+            baseAnd.push({ OR: [{ from: { contains: opts.search } }, { subject: { contains: opts.search } }] });
         }
+        const baseWhere: Prisma.MailMessageWhereInput | undefined = baseAnd.length ? { AND: baseAnd } : undefined;
+
+        const and = [...baseAnd];
         if (opts.cursor) {
             const decoded = this.decodeMailCursor(opts.cursor);
             if (decoded) {
@@ -122,22 +128,25 @@ export class UtilityService {
             }
         }
 
-        const rows = await this.prisma.mailMessage.findMany({
-            where: and.length ? { AND: and } : undefined,
-            orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
-            take: limit + 1, // fetch one extra to know whether another page exists
-            // List view never needs body/html/flags/attachments — those are LongText blobs
-            // that can be tens of KB per message; pulling them for every row in a list is
-            // what was making this query slow. The detail endpoint fetches them separately.
-            select: MAIL_MESSAGE_LIST_SELECT,
-        });
+        const [rows, total] = await Promise.all([
+            this.prisma.mailMessage.findMany({
+                where: and.length ? { AND: and } : undefined,
+                orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+                take: limit + 1, // fetch one extra to know whether another page exists
+                // List view never needs body/html/flags/attachments — those are LongText blobs
+                // that can be tens of KB per message; pulling them for every row in a list is
+                // what was making this query slow. The detail endpoint fetches them separately.
+                select: MAIL_MESSAGE_LIST_SELECT,
+            }),
+            this.prisma.mailMessage.count({ where: baseWhere }),
+        ]);
 
         const hasMore = rows.length > limit;
         const page = rows.slice(0, limit);
         const last = page[page.length - 1];
         const nextCursor = hasMore && last ? this.encodeMailCursor(last.receivedAt, last.id) : null;
 
-        return { data: page.map((m) => this.toMailMessageView(m)), nextCursor };
+        return { data: page.map((m) => this.toMailMessageView(m)), nextCursor, total };
     }
 
     private encodeMailCursor(receivedAt: Date, id: string): string {

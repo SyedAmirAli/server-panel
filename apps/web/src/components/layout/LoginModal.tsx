@@ -27,11 +27,11 @@ export function LoginModal() {
         <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
             <div className="w-full max-w-sm px-4">
                 <div className="mb-8 flex flex-col items-center text-center">
-                    <div className="mb-5 flex items-center justify-center rounded-2xl bg-indigo-600 px-6 py-3.5 shadow-lg shadow-indigo-200/60">
+                    <div className="mb-5 flex items-center justify-center">
                         <img
                             src="https://temporary.syedamirali.me/krishidoctor/brand/logo-horizontal.png"
                             alt="Amir's Panel"
-                            className="h-6 w-auto"
+                            className="h-14 w-auto"
                             draggable={false}
                         />
                     </div>
