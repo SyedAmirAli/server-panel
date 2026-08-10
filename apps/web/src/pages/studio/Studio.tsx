@@ -19,6 +19,9 @@ import { ChatMarkdown } from "@/components/studio/ChatMarkdown";
 import { ThinkingTrace, type TraceStep } from "@/components/studio/ThinkingTrace";
 import { NewConversationModal } from "@/components/studio/NewConversationModal";
 import { ConversationList } from "@/components/studio/ConversationList";
+import { AttachMenu, type Attachments } from "@/components/studio/AttachMenu";
+import { AttachedChips } from "@/components/studio/AttachedChips";
+import type { ResumeDocument } from "@appszone/shared";
 
 /**
  * The Studio is a conversation, not a form.
@@ -40,6 +43,10 @@ export function Studio() {
     const [asking, setAsking] = useState(false);
     const [loading, setLoading] = useState(true);
     const [newOpen, setNewOpen] = useState(false);
+    const [documents, setDocuments] = useState<ResumeDocument[]>([]);
+    // Message-scoped context from the + menu; person/job go straight to the
+    // conversation instead, since they decide what it is for.
+    const [pending, setPending] = useState<Attachments>({});
 
     // The turn currently in flight.
     const [trace, setTrace] = useState<TraceStep[]>([]);
@@ -85,9 +92,12 @@ export function Studio() {
         }
         void (async () => {
             try {
-                setConversation(await studioApi.getConversation(conversationId));
+                const detail = await studioApi.getConversation(conversationId);
+                setConversation(detail);
                 setTrace([]);
                 setLiveAnswer("");
+                setPending({});
+                setDocuments(detail.profileId ? await studioApi.listDocuments(detail.profileId).catch(() => []) : []);
             } catch (err) {
                 toastError(err instanceof Error ? err.message : "Could not open that conversation");
                 navigate("/studio", { replace: true });
@@ -136,7 +146,12 @@ export function Studio() {
         setElapsed(undefined);
         const startedAt = Date.now();
         try {
-            await studioApi.ask(conversation.id, q);
+            await studioApi.ask(conversation.id, q, {
+                jobText: pending.jobText,
+                documentId: pending.documentId,
+                toEmail: pending.toEmail,
+            });
+            setPending({});
             setConversation(await studioApi.getConversation(conversation.id));
             void loadSidebar();
         } catch (err) {
@@ -173,6 +188,27 @@ export function Studio() {
         } catch (err) {
             toastError(err instanceof Error ? err.message : "Could not delete");
         }
+    }
+
+    /** Person and job change the conversation; everything else waits for send. */
+    async function attach(patch: Attachments) {
+        if (!conversation) return;
+        if (patch.profileId !== undefined || patch.postingId !== undefined) {
+            try {
+                await studioApi.setContext(conversation.id, {
+                    ...(patch.profileId !== undefined ? { profileId: patch.profileId } : {}),
+                    ...(patch.postingId !== undefined ? { postingId: patch.postingId } : {}),
+                });
+                const detail = await studioApi.getConversation(conversation.id);
+                setConversation(detail);
+                setDocuments(detail.profileId ? await studioApi.listDocuments(detail.profileId).catch(() => []) : []);
+                void loadSidebar();
+            } catch (err) {
+                toastError(err instanceof Error ? err.message : "Could not attach that");
+            }
+            return;
+        }
+        setPending((prev) => ({ ...prev, ...patch }));
     }
 
     async function rename(id: string, title: string) {
@@ -325,7 +361,23 @@ export function Studio() {
                         </div>
 
                         <div className="border-t border-gray-100 p-3">
+                            <AttachedChips
+                                conversation={conversation}
+                                pending={pending}
+                                documents={documents}
+                                onRemove={(what) => {
+                                    if (what === "person") void attach({ profileId: null });
+                                    else if (what === "job") void attach({ postingId: null });
+                                    else setPending((prev) => ({ ...prev, [what]: undefined }));
+                                }}
+                            />
                             <div className="flex gap-2">
+                                <AttachMenu
+                                    people={people}
+                                    postings={postings}
+                                    documents={documents}
+                                    onAttach={(patch) => void attach(patch)}
+                                />
                                 <input
                                     value={question}
                                     onChange={(e) => setQuestion(e.target.value)}

@@ -16,6 +16,17 @@ export type StudioStreamEvent =
     | { type: "done"; messageId: string }
     | { type: "error"; message: string };
 
+export interface MessageAttachments {
+    /** A pasted job description, used for this message only. */
+    jobText?: string;
+    /** A previously generated resume or cover letter to work from. */
+    documentId?: string;
+    /** Which configured address to send from. */
+    emailConfigId?: string;
+    /** Who to send to. */
+    toEmail?: string;
+}
+
 /** How many tool calls one question may trigger before we stop and answer. */
 const MAX_TOOL_STEPS = 4;
 
@@ -37,6 +48,61 @@ export class StudioChatService {
         private readonly conversations: ConversationService,
         private readonly tools: StudioToolsService
     ) {}
+
+    /**
+     * Render whatever was attached to this message.
+     *
+     * Each is fetched fresh rather than trusted from the client: an id is a
+     * request to look something up, not a licence to state its contents.
+     */
+    private async renderAttachments(attachments: MessageAttachments): Promise<string | null> {
+        const parts: string[] = [];
+
+        if (attachments.jobText?.trim()) {
+            parts.push(
+                [
+                    "The user attached this job description:",
+                    "=== BEGIN UNTRUSTED JOB TEXT (read only) ===",
+                    attachments.jobText.slice(0, 8000),
+                    "=== END UNTRUSTED JOB TEXT ===",
+                ].join("\n")
+            );
+        }
+
+        if (attachments.documentId) {
+            const doc = await this.prisma.resumeDocument.findUnique({
+                where: { id: attachments.documentId },
+                select: { title: true, kind: true, pageCount: true, createdAt: true, contentJson: true },
+            });
+            if (doc) {
+                parts.push(
+                    [
+                        `The user attached a previously generated ${doc.kind.replace("_", " ")}: "${doc.title}"` +
+                            `${doc.pageCount ? ` (${doc.pageCount} page(s))` : ""}, created ${doc.createdAt.toISOString().slice(0, 10)}.`,
+                        "Its contents:",
+                        JSON.stringify(doc.contentJson).slice(0, 6000),
+                    ].join("\n")
+                );
+            }
+        }
+
+        if (attachments.emailConfigId) {
+            // Name and address only — never the credentials behind it.
+            const config = await this.prisma.emailConfig.findUnique({
+                where: { id: attachments.emailConfigId },
+                select: { name: true, username: true },
+            });
+            if (config) {
+                parts.push(`The user attached a sending address: ${config.name} <${config.username}>.`);
+            }
+        }
+
+        if (attachments.toEmail?.trim()) {
+            parts.push(`The user attached a recipient address: ${attachments.toEmail.trim()}.`);
+        }
+
+        return parts.length ? parts.join("\n\n") : null;
+    }
 
     /** The attached candidate's full record, rendered for the system prompt. */
     private async loadProfileContext(profileId: string): Promise<string | null> {
@@ -85,10 +151,19 @@ export class StudioChatService {
      * Handle a user turn. Returns once the answer is stored; progress is pushed
      * to {@link streamFor} as it happens.
      */
-    async ask(conversationId: string, question: string): Promise<{ answer: string; references: EntityReference[] }> {
+    async ask(
+        conversationId: string,
+        question: string,
+        /** Extra context attached to this one message via the composer's + menu. */
+        attachments: MessageAttachments = {}
+    ): Promise<{ answer: string; references: EntityReference[] }> {
         const stream = this.streamFor(conversationId);
         const conversation = await this.conversations.getOne(conversationId);
 
+        // Attachments are rendered into the stored message, so reopening the
+        // thread later shows what the assistant was actually given — context that
+        // exists only in memory makes past answers unexplainable.
+        const attachmentBlock = await this.renderAttachments(attachments);
         await this.conversations.addMessage({ conversationId, role: "user", content: question });
 
         if (!this.llm.isConfigured()) {
@@ -117,6 +192,7 @@ export class StudioChatService {
             { role: "system", content: system },
             ...history.map((h) => ({ role: h.role, content: h.content }) as ChatMessage),
         ];
+        if (attachmentBlock) messages.push({ role: "user", content: attachmentBlock });
 
         const references: EntityReference[] = [];
 
@@ -141,6 +217,16 @@ export class StudioChatService {
                     let answer = call
                         ? "I could not finish looking that up — try narrowing the question."
                         : text || "I could not produce an answer.";
+
+                    // Belt and braces: a tool call must never reach the user as
+                    // prose. parseToolCall is deliberately strict, so a malformed
+                    // or fenced call can slip past it — and dumping raw JSON at
+                    // someone is worse than admitting the turn went wrong.
+                    if (looksLikeRawJson(answer)) {
+                        this.logger.warn(`Suppressed raw JSON leaking into an answer: ${answer.slice(0, 200)}`);
+                        answer =
+                            "I got tangled up looking that up and did not produce a proper answer. Ask me again, or narrow the question.";
+                    }
 
                     if (!call && references.length) {
                         // A tool ran, so the answer above was written without the
@@ -252,4 +338,21 @@ function describeTool(name: string): string {
         getStorageUsage: "Checking storage",
     };
     return phrases[name] ?? `Looking up ${name}`;
+}
+
+/**
+ * True when text is really a JSON object rather than an answer.
+ *
+ * Only used as a last-resort filter on what is about to be shown to the user —
+ * prose that merely contains braces is left alone.
+ */
+function looksLikeRawJson(text: string): boolean {
+    const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+    try {
+        const parsed = JSON.parse(trimmed);
+        return typeof parsed === "object" && parsed !== null;
+    } catch {
+        return false;
+    }
 }

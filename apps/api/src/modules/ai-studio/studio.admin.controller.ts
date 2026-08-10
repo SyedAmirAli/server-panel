@@ -131,8 +131,19 @@ export class StudioAdminController {
     @Post("conversations/:id/ask")
     @UseGuards(AdminGuard)
     @ApiOperation({ summary: "Ask a question; progress also streams on /stream" })
-    async ask(@Param("id") id: string, @Body() body: { question: string }) {
-        const result = await this.chat.ask(id, body.question);
+    async ask(
+        @Param("id") id: string,
+        @Body()
+        body: {
+            question: string;
+            jobText?: string;
+            documentId?: string;
+            emailConfigId?: string;
+            toEmail?: string;
+        }
+    ) {
+        const { question, ...attachments } = body;
+        const result = await this.chat.ask(id, question, attachments);
         return ApiResponse.success(result, "Answered");
     }
 

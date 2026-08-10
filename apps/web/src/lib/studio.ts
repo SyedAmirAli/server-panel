@@ -50,10 +50,14 @@ export const studioApi = {
     renameConversation: (id: string, title: string) =>
         api<StudioConversation>(`${BASE}/conversations/${id}/title`, { method: "PUT", body: { title } }),
     removeConversation: (id: string) => api<{ id: string }>(`${BASE}/conversations/${id}`, { method: "DELETE" }),
-    ask: (id: string, question: string) =>
+    ask: (
+        id: string,
+        question: string,
+        attachments: { jobText?: string; documentId?: string; emailConfigId?: string; toEmail?: string } = {}
+    ) =>
         api<{ answer: string; references: EntityReference[] }>(`${BASE}/conversations/${id}/ask`, {
             method: "POST",
-            body: { question },
+            body: { question, ...attachments },
         }),
 
     tailor: (body: { profileId: string; postingId?: string; jobText?: string }) =>
