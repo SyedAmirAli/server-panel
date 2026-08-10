@@ -16,6 +16,7 @@ import {
 } from "@/lib/studio";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { ResumePreview } from "@/components/studio/ResumePreview";
+import { ChatMarkdown } from "@/components/studio/ChatMarkdown";
 
 /**
  * One chat surface whose capability grows with context.
@@ -206,7 +207,14 @@ export function Studio() {
                                                 : "bg-gray-100 text-gray-800"
                                         }`}
                                     >
-                                        <p className="whitespace-pre-wrap">{m.content}</p>
+                                        {/* The user's own text is shown verbatim — rendering
+                                            it as markdown could reformat what they typed.
+                                            Assistant replies are markdown by nature. */}
+                                        {m.role === "user" ? (
+                                            <p className="whitespace-pre-wrap">{m.content}</p>
+                                        ) : (
+                                            <ChatMarkdown content={m.content ?? ""} />
+                                        )}
                                         {m.references && (m.references as EntityReference[]).length > 0 && (
                                             <div className="mt-2 flex flex-wrap gap-1">
                                                 {(m.references as EntityReference[]).map((ref) => {
