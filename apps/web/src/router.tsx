@@ -13,6 +13,8 @@ import { ApiDocs } from "@/pages/ApiDocs";
 import { FoundJobs } from "@/pages/jobs/FoundJobs";
 import { JobDetail } from "@/pages/jobs/JobDetail";
 import { JobFinderSettings } from "@/pages/jobs/JobFinderSettings";
+import { PeopleList } from "@/pages/people/PeopleList";
+import { PersonDetail } from "@/pages/people/PersonDetail";
 import { Buckets } from "@/pages/storage/Buckets";
 import { BucketDetail } from "@/pages/storage/BucketDetail";
 import { StorageKeys } from "@/pages/storage/StorageKeys";
@@ -31,6 +33,8 @@ export const router = createBrowserRouter([
             { path: "jobs", element: <FoundJobs /> },
             { path: "jobs/settings", element: <JobFinderSettings /> },
             { path: "jobs/:id", element: <JobDetail /> },
+            { path: "people", element: <PeopleList /> },
+            { path: "people/:id", element: <PersonDetail /> },
             { path: "storage", element: <Buckets /> },
             { path: "storage/keys", element: <StorageKeys /> },
             { path: "storage/:publicId", element: <BucketDetail /> },

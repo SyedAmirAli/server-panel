@@ -53,7 +53,11 @@ export interface CandidateProfile {
     timezone: string | null;
     availability: string | null;
     summary: string | null;
+    /** Free-form "about me" — Studio chat context, never printed verbatim. */
+    bio: string | null;
     titles: string[];
+    /** Roles actually being targeted, which is not always what the headline says. */
+    preferredTitles: string[] | null;
     skills: CandidateSkill[];
     experience: CandidateExperience[];
     education: CandidateEducation[];

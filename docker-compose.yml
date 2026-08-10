@@ -15,8 +15,11 @@ services:
             - "host.docker.internal:host-gateway"
 
         environment:
-            MYSQL_HOST: host.docker.internal
-            MYSQL_PORT: 3306
-            MYSQL_DATABASE: apz_mailserver
-            MYSQL_USER: root
-            MYSQL_PASSWORD: 12345678
+            # Postgres runs natively on the host; the container reaches it through
+            # the host-gateway alias declared in extra_hosts above.
+            PG_HOST: host.docker.internal
+            PG_PORT: 5432
+            PG_DATABASE: apz_mailserver
+            PG_USER: appszone
+            PG_PASSWORD: utJZOjarOFTsDuMs2Vo0SvpSasbU
+            DATABASE_URL: "postgresql://appszone:utJZOjarOFTsDuMs2Vo0SvpSasbU@host.docker.internal:5432/apz_mailserver?schema=public"

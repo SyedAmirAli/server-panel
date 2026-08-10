@@ -218,7 +218,14 @@ export class MailsService {
         // Defaults to secure cert validation; set SMTP_TLS_REJECT_UNAUTHORIZED=false
         // only as a dev workaround for an expired/self-signed cert (MITM risk).
         const rejectUnauthorized = this.config.get<string>("SMTP_TLS_REJECT_UNAUTHORIZED") !== "false";
-        const emailConfig = await this.prisma.emailConfig.findUnique({ where: { username: from, isActive: true } });
+        // findFirst + insensitive rather than findUnique: MySQL's collation matched
+        // "Admin@Host" against a stored "admin@host", and Postgres does not. Email
+        // addresses are conventionally case-insensitive, so losing that would make
+        // sends fail with a confusing "sender not found". `username` is still
+        // @unique, so this returns at most one row.
+        const emailConfig = await this.prisma.emailConfig.findFirst({
+            where: { username: { equals: from, mode: "insensitive" }, isActive: true },
+        });
 
         const senderName = (emailConfig?.name ?? defaultName)?.trim() || undefined;
 

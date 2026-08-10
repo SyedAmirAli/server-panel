@@ -37,9 +37,9 @@ export class JobPostingsService {
             ...(query.search
                 ? {
                       OR: [
-                          { title: { contains: query.search } },
-                          { company: { contains: query.search } },
-                          { location: { contains: query.search } },
+                          { title: { contains: query.search, mode: "insensitive" as const } },
+                          { company: { contains: query.search, mode: "insensitive" as const } },
+                          { location: { contains: query.search, mode: "insensitive" as const } },
                       ],
                   }
                 : {}),

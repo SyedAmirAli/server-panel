@@ -243,3 +243,11 @@ details[open] .faq-chevron {
 button {
     cursor: pointer;
 }
+
+/* AI Studio sidebar label — a slow gradient sweep. Defined here rather than in
+   the Tailwind config so it stays alongside the other one-off keyframes. */
+@keyframes studio-glow {
+    to {
+        background-position: 200% center;
+    }
+}

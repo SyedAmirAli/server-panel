@@ -8,9 +8,22 @@
 
 export type ChatRole = "system" | "user" | "assistant";
 
+/**
+ * A multimodal content part, in the OpenAI-compatible shape. Only needed for
+ * vision calls (OCR); text-only callers keep passing a plain string.
+ */
+export type ContentPart =
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "auto" } };
+
 export interface ChatMessage {
     role: ChatRole;
-    content: string;
+    /**
+     * A plain string for ordinary calls. The array form carries images for
+     * vision models — widened rather than replaced, so every existing text-only
+     * call site is untouched.
+     */
+    content: string | ContentPart[];
 }
 
 export interface CompletionOptions {

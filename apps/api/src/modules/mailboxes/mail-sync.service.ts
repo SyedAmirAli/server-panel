@@ -90,6 +90,17 @@ export class MailSyncService {
                 auth: { user: mailbox.imapUser, pass },
                 logger: false,
             });
+            // ImapFlow is an EventEmitter: an 'error' with no listener is an
+            // *unhandled* error event, which takes the whole Node process down.
+            // The try/catch below cannot catch it, because the socket can fail
+            // asynchronously long after connect() resolved (read ETIMEDOUT while
+            // fetching or idling). Swallow it here; the awaited calls still
+            // reject and are handled normally.
+            client.on("error", (err: unknown) => {
+                this.logger.warn(
+                    `IMAP socket error for ${mailbox.address}: ${err instanceof Error ? err.message : String(err)}`
+                );
+            });
             await client.connect();
 
             const lock = await client.getMailboxLock(INBOX_FOLDER);

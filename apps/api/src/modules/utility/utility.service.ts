@@ -111,7 +111,15 @@ export class UtilityService {
         const baseAnd: Prisma.MailMessageWhereInput[] = [];
         if (opts.mailboxId) baseAnd.push({ mailboxId: opts.mailboxId });
         if (opts.search) {
-            baseAnd.push({ OR: [{ from: { contains: opts.search } }, { subject: { contains: opts.search } }] });
+            // `insensitive` is explicit because Postgres compares case-sensitively;
+            // MySQL's utf8mb4 collation did this for us and searches silently
+            // narrowed without it.
+            baseAnd.push({
+                OR: [
+                    { from: { contains: opts.search, mode: "insensitive" } },
+                    { subject: { contains: opts.search, mode: "insensitive" } },
+                ],
+            });
         }
         const baseWhere: Prisma.MailMessageWhereInput | undefined = baseAnd.length ? { AND: baseAnd } : undefined;
 

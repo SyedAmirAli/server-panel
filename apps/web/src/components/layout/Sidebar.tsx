@@ -13,6 +13,8 @@ import {
     BookOpen,
     Briefcase,
     SlidersHorizontal,
+    Users,
+    Sparkles,
     LogOut,
     type LucideIcon,
 } from "lucide-react";
@@ -39,6 +41,12 @@ const adminItems: NavItemDef[] = [
 const jobItems: NavItemDef[] = [
     { to: "/jobs", label: "Found Jobs", icon: Briefcase, end: true },
     { to: "/jobs/settings", label: "Job Settings", icon: SlidersHorizontal },
+];
+
+// AI Studio — the one AI surface in an otherwise conventional admin panel, so
+// the section label carries a subtle animated gradient to set it apart.
+const studioItems: NavItemDef[] = [
+    { to: "/people", label: "People", icon: Users, end: true },
 ];
 
 const storageItems: NavItemDef[] = [
@@ -76,10 +84,19 @@ function NavItem({ to, label, icon: Icon, end }: NavItemDef) {
     );
 }
 
-function NavSection({ label, items }: { label: string; items: NavItemDef[] }) {
+function NavSection({ label, items, glow }: { label: string; items: NavItemDef[]; glow?: boolean }) {
     return (
         <div>
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">{label}</p>
+            <p
+                className={
+                    glow
+                        ? "mb-1 flex items-center gap-1 bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-indigo-500 bg-[length:200%_auto] bg-clip-text px-3 text-[10px] font-semibold uppercase tracking-widest text-transparent [animation:studio-glow_4s_linear_infinite]"
+                        : "mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400"
+                }
+            >
+                {glow && <Sparkles size={10} className="text-fuchsia-500" />}
+                {label}
+            </p>
             <div className="space-y-0.5">
                 {items.map((item) => (
                     <NavItem key={item.to} {...item} />
@@ -110,6 +127,7 @@ export function Sidebar() {
                 <NavSection label="Mail" items={mailItems} />
                 <NavSection label="Admin" items={adminItems} />
                 <NavSection label="Job Finder" items={jobItems} />
+                <NavSection label="AI Studio" items={studioItems} glow />
                 <NavSection label="Storage" items={storageItems} />
                 <NavSection label="Logs" items={logItems} />
                 <NavSection label="Docs" items={[{ to: "/docs", label: "API Docs", icon: BookOpen }]} />

@@ -46,7 +46,9 @@ export class LinkedInEmailSource implements JobSourceAdapter {
             where: {
                 receivedAt: { gte: ctx.since },
                 ...(mailboxId ? { mailboxId } : {}),
-                OR: senders.map((sender) => ({ from: { contains: sender } })),
+                // Sender domains vary in case between providers, so match
+                // insensitively — Postgres would otherwise miss most of them.
+                OR: senders.map((sender) => ({ from: { contains: sender, mode: "insensitive" as const } })),
             },
             orderBy: { receivedAt: "desc" },
             take: 50,
