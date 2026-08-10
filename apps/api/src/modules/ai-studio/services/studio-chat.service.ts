@@ -3,7 +3,8 @@ import { Subject } from "rxjs";
 import { PrismaService } from "@/prisma/prisma.service";
 import { LlmService, extractJson } from "@/modules/job-finder/llm/llm.service";
 import { ConversationService } from "@/modules/ai-studio/services/conversation.service";
-import { StudioToolsService, type EntityReference } from "@/modules/ai-studio/services/studio-tools.service";
+import { StudioToolsService, type EntityReference, type ToolOutcome } from "@/modules/ai-studio/services/studio-tools.service";
+import { ApplicationPreparationService } from "@/modules/ai-studio/services/application-preparation.service";
 import { buildAssistantPrompt, renderProfileContext, renderToolResult } from "@/modules/ai-studio/prompts/assistant.prompt";
 import type { ChatMessage } from "@/modules/job-finder/llm/llm.types";
 
@@ -46,8 +47,69 @@ export class StudioChatService {
         private readonly prisma: PrismaService,
         private readonly llm: LlmService,
         private readonly conversations: ConversationService,
-        private readonly tools: StudioToolsService
+        private readonly tools: StudioToolsService,
+        private readonly preparation: ApplicationPreparationService
     ) {}
+
+    /**
+     * The one action the assistant may take.
+     *
+     * Dispatched here rather than in the tool layer because it needs the
+     * conversation's person and job. It produces a complete application and
+     * hands it back for review — it cannot send, and there is deliberately no
+     * tool that can.
+     */
+    private async runPrepareApplication(
+        conversation: { profileId: string | null; postingId: string | null },
+        args: Record<string, unknown>,
+        attachments: MessageAttachments
+    ): Promise<ToolOutcome> {
+        if (!conversation.profileId) {
+            return {
+                summary: "No person is attached to this conversation, so there is nobody to apply on behalf of. Ask the user to attach one with the + button.",
+                data: {},
+                references: [],
+            };
+        }
+
+        const jobText = attachments.jobText ?? null;
+        if (!conversation.postingId && !jobText) {
+            return {
+                summary: "No job is attached and no description was pasted, so there is nothing to apply to. Ask the user to attach a job or paste the posting.",
+                data: {},
+                references: [],
+            };
+        }
+
+        try {
+            const preview = await this.preparation.prepare({
+                profileId: conversation.profileId,
+                postingId: conversation.postingId,
+                jobText,
+                toEmail: (typeof args.toEmail === "string" ? args.toEmail : null) ?? attachments.toEmail ?? null,
+                guidance: typeof args.guidance === "string" ? args.guidance : null,
+            });
+
+            const attachmentNames = preview.attachments.map((a) => a.fileName ?? a.title).join(", ");
+            return {
+                summary:
+                    `Application prepared for ${preview.posting?.title ?? "the role"} at ${preview.posting?.company ?? "the company"}. ` +
+                    `Subject: "${preview.subject}". Attachments: ${attachmentNames || "none"}. ` +
+                    `Recipient: ${preview.toEmail ?? "not set"}. ` +
+                    "It is shown to the user for approval — tell them briefly what you prepared and that nothing has been sent.",
+                data: { applicationId: preview.applicationId, subject: preview.subject, toEmail: preview.toEmail },
+                references: [
+                    {
+                        type: "application",
+                        id: preview.applicationId,
+                        label: `Application — ${preview.posting?.company ?? "draft"}`,
+                    },
+                ],
+            };
+        } catch (err) {
+            return { summary: `Could not prepare the application: ${(err as Error).message}`, data: {}, references: [] };
+        }
+    }
 
     /**
      * Render whatever was attached to this message.
@@ -268,7 +330,11 @@ export class StudioChatService {
 
                 stream.next({ type: "thinking", text: describeTool(call.tool) });
                 stream.next({ type: "tool_call", name: call.tool, args: call.args });
-                const outcome = await this.tools.run(call.tool, call.args);
+
+                const outcome =
+                    call.tool === "prepareApplication"
+                        ? await this.runPrepareApplication(conversation, call.args, attachments)
+                        : await this.tools.run(call.tool, call.args);
                 stream.next({ type: "tool_result", name: call.tool, summary: outcome.summary });
 
                 for (const ref of outcome.references) {
@@ -336,6 +402,7 @@ function describeTool(name: string): string {
         getApplicationHistory: "Checking your application history",
         listDocuments: "Listing generated documents",
         getStorageUsage: "Checking storage",
+        prepareApplication: "Preparing the application — tailoring the resume and writing the email",
     };
     return phrases[name] ?? `Looking up ${name}`;
 }

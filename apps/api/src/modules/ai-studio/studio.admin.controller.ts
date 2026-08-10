@@ -9,6 +9,7 @@ import { ConversationService } from "@/modules/ai-studio/services/conversation.s
 import { StudioChatService } from "@/modules/ai-studio/services/studio-chat.service";
 import { TailoringService } from "@/modules/ai-studio/services/tailoring.service";
 import { ApplicationSendService } from "@/modules/ai-studio/services/application-send.service";
+import { ApplicationPreparationService } from "@/modules/ai-studio/services/application-preparation.service";
 
 @ApiTags("AI Studio — Documents")
 @ApiBearerAuth("admin")
@@ -19,7 +20,8 @@ export class StudioAdminController {
         private readonly conversations: ConversationService,
         private readonly chat: StudioChatService,
         private readonly tailoring: TailoringService,
-        private readonly sender: ApplicationSendService
+        private readonly sender: ApplicationSendService,
+        private readonly preparation: ApplicationPreparationService
     ) {}
 
     /**
@@ -227,5 +229,31 @@ export class StudioAdminController {
             result,
             `Sent via ${result.via} with ${result.attachmentCount} attachment(s)`
         );
+    }
+
+    /* ─── application preview & approval ─────────────────────── */
+
+    @Get("applications/:id/preview")
+    @UseGuards(AdminGuard)
+    @ApiOperation({ summary: "The email, its attachments and the addresses it can be sent from" })
+    preview(@Param("id") id: string) {
+        return this.preparation.preview(id);
+    }
+
+    @Put("applications/:id/preview")
+    @UseGuards(AdminGuard)
+    @ApiOperation({ summary: "Hand-edit the email before approving it" })
+    async editPreview(
+        @Param("id") id: string,
+        @Body() body: { subject?: string; body?: string; toEmail?: string }
+    ) {
+        return ApiResponse.success(await this.preparation.update(id, body), "Application updated");
+    }
+
+    @Post("applications/:id/cancel")
+    @UseGuards(AdminGuard)
+    @ApiOperation({ summary: "Discard a prepared application without sending" })
+    async cancelApplication(@Param("id") id: string) {
+        return ApiResponse.success(await this.preparation.cancel(id), "Application cancelled");
     }
 }

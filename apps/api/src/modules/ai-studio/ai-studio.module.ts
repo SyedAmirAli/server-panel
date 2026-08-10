@@ -17,6 +17,7 @@ import { StudioToolsService } from "@/modules/ai-studio/services/studio-tools.se
 import { StudioChatService } from "@/modules/ai-studio/services/studio-chat.service";
 import { TailoringService } from "@/modules/ai-studio/services/tailoring.service";
 import { ApplicationSendService } from "@/modules/ai-studio/services/application-send.service";
+import { ApplicationPreparationService } from "@/modules/ai-studio/services/application-preparation.service";
 import { MailsModule } from "@/modules/mails/mails.module";
 import { LLM_PROVIDER } from "@/modules/job-finder/llm/llm.types";
 import { OpenAiCompatibleProvider } from "@/modules/job-finder/llm/openai-compatible.provider";
@@ -50,6 +51,7 @@ import { StudioAdminController } from "@/modules/ai-studio/studio.admin.controll
         StudioChatService,
         TailoringService,
         ApplicationSendService,
+        ApplicationPreparationService,
         // Provider-agnostic by contract: swapping hosts means binding a different
         // class here, with no call-site changes.
         { provide: LLM_PROVIDER, useClass: OpenAiCompatibleProvider },
@@ -69,6 +71,7 @@ import { StudioAdminController } from "@/modules/ai-studio/studio.admin.controll
         StudioChatService,
         TailoringService,
         ApplicationSendService,
+        ApplicationPreparationService,
         LLM_PROVIDER,
     ],
 })

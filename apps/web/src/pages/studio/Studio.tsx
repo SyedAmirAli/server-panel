@@ -21,6 +21,7 @@ import { NewConversationModal } from "@/components/studio/NewConversationModal";
 import { ConversationList } from "@/components/studio/ConversationList";
 import { AttachMenu, type Attachments } from "@/components/studio/AttachMenu";
 import { AttachedChips } from "@/components/studio/AttachedChips";
+import { ApplicationPreview } from "@/components/studio/ApplicationPreview";
 import type { ResumeDocument } from "@appszone/shared";
 
 /**
@@ -313,9 +314,20 @@ export function Studio() {
                                             <ChatMarkdown content={m.content ?? ""} />
                                         )}
 
+                                        {(m.references as EntityReference[] | null)
+                                            ?.filter((r) => r.type === "application")
+                                            .map((r) => (
+                                                <ApplicationPreview
+                                                    key={r.id}
+                                                    applicationId={r.id}
+                                                    onSent={() => void loadSidebar()}
+                                                />
+                                            ))}
+
                                         {m.references && (m.references as EntityReference[]).length > 0 && (
                                             <div className="mt-2 flex flex-wrap gap-1">
                                                 {(m.references as EntityReference[]).map((ref) => {
+                                                    if (ref.type === "application") return null;
                                                     const route = routeForReference(ref);
                                                     if (!route) return null;
                                                     return (

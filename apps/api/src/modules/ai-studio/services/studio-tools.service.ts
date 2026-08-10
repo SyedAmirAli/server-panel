@@ -34,8 +34,11 @@ const ROW_CAP = 25;
  * 2. **No tool can reach a secret.** Every select list below is explicit.
  *    SMTP passwords, the encryption key, API-key hashes and storage credentials
  *    are simply not selectable, whatever the model asks for.
- * 3. **Everything is read-only.** There is no send, delete or config-mutating
- *    tool. Actions stay behind buttons a human presses.
+ * 3. **Everything here is read-only.** There is no send, delete or
+ *    config-mutating handler in this file. The one action the assistant may
+ *    take — `prepareApplication` — is declared here but dispatched by
+ *    StudioChatService, because it needs the conversation's context. Preparing
+ *    is reversible; sending is not, and stays behind a button a human presses.
  *
  * Mail bodies are returned to the caller, which then fences them as untrusted
  * content — they are written by strangers, and a message saying "ignore your
@@ -86,6 +89,15 @@ export class StudioToolsService {
         },
         { name: "listDocuments", description: "Generated resumes and cover letters.", parameters: { profileId: "optional" } },
         { name: "getStorageUsage", description: "Buckets and how many objects each holds.", parameters: {} },
+        {
+            name: "prepareApplication",
+            description:
+                "Prepare the complete application for the person and job in context: tailors and renders the resume, writes the covering email, and returns it for the user to review. Does NOT send anything — the user approves and sends themselves. Call this when the user says the application is ready, or asks you to prepare or build it.",
+            parameters: {
+                toEmail: "optional recipient address, if known",
+                guidance: "optional direction from the conversation, e.g. 'mention I can start immediately'",
+            },
+        },
     ];
 
     /** Dispatch a tool call. Unknown names are refused rather than guessed at. */
