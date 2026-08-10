@@ -7,5 +7,7 @@ import { MailsService } from "@/modules/mails/mails.service";
   imports: [ApiKeysModule], // ApiKeyGuard for /v1/send
   controllers: [MailsController],
   providers: [MailsService],
+  // Exported so AI Studio can send applications through the same pipeline.
+  exports: [MailsService],
 })
 export class MailsModule {}

@@ -46,6 +46,7 @@ const jobItems: NavItemDef[] = [
 // AI Studio — the one AI surface in an otherwise conventional admin panel, so
 // the section label carries a subtle animated gradient to set it apart.
 const studioItems: NavItemDef[] = [
+    { to: "/studio", label: "Studio", icon: Sparkles, end: true },
     { to: "/people", label: "People", icon: Users, end: true },
 ];
 

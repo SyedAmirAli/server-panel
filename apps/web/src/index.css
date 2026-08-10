@@ -251,3 +251,42 @@ button {
         background-position: 200% center;
     }
 }
+
+/* ─── ATS resume page geometry (ported from the resume repo) ─────────────── */
+
+.a4-page {
+    width: 210mm;
+    /* min-height, not height: content longer than one sheet must be allowed to flow */
+    min-height: 297mm;
+    padding: 0;
+    margin: 0 auto;
+    background-color: white;
+}
+
+@media print {
+    /* Without this, Chrome applies its own ~10mm page margin while .a4-page still
+       claims a full 297mm — so the box is taller than the printable area and always
+       bleeds onto a second sheet. Margins come from the page's own padding instead. */
+    @page {
+        size: A4;
+        margin: 0;
+    }
+
+    body {
+        background-color: white !important;
+        margin: 0;
+        padding: 0;
+    }
+
+    .a4-page {
+        width: 210mm;
+        min-height: 297mm;
+        box-shadow: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+}

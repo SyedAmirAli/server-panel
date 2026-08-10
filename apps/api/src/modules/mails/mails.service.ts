@@ -12,6 +12,8 @@ export enum MailAuditLogAction {
 
     ACTOR_TYPE_API_KEY = "apikey",
     ACTOR_TYPE_SYSTEM = "system",
+    /** Admin-initiated send (AI Studio applications) — no API key involved. */
+    ACTOR_TYPE_ADMIN = "admin",
 
     ENTITY_TYPE_SENT_MESSAGE = "sentMessage",
     ENTITY_TYPE_AUDIT_LOG = "auditLog",
@@ -45,7 +47,10 @@ export class MailsService {
 
     // api {POST} -> /v1/mails/send
     async send(
-        apiKey: ApiKey,
+        // Nullable so admin-side callers (AI Studio applications) can send without
+        // minting an API key. `SentMessage.apiKeyId` was already optional, so
+        // nothing downstream changes for the existing /v1/send path.
+        apiKey: ApiKey | null,
         dto: SendMailDto,
         attachments: UploadedAttachment[],
         headers: any
@@ -56,7 +61,7 @@ export class MailsService {
         // Persist first so the message is tracked even if delivery fails.
         const record = await this.prisma.sentMessage.create({
             data: {
-                apiKeyId: apiKey.id,
+                apiKeyId: apiKey?.id ?? null,
                 from: dto.from,
                 to: dto.to,
                 cc: dto.cc ?? undefined,
@@ -126,7 +131,7 @@ export class MailsService {
         attachments,
     }: {
         headers: any;
-        apiKey: ApiKey;
+        apiKey: ApiKey | null;
         record: any;
         dto: SendMailDto;
         attachments?: any;
@@ -136,8 +141,8 @@ export class MailsService {
                 await this.createAuditLog({
                     headers,
                     action: MailAuditLogAction.SEND_SUCCESS,
-                    actorType: MailAuditLogAction.ACTOR_TYPE_API_KEY,
-                    actorId: apiKey.id,
+                    actorType: apiKey ? MailAuditLogAction.ACTOR_TYPE_API_KEY : MailAuditLogAction.ACTOR_TYPE_ADMIN,
+                    actorId: apiKey?.id ?? undefined,
                     entityType: MailAuditLogAction.ENTITY_TYPE_SENT_MESSAGE,
                     entityId: record.id,
                     metadata: dto,
@@ -148,8 +153,8 @@ export class MailsService {
                 await this.createAuditLog({
                     headers,
                     action: MailAuditLogAction.SEND_FAILED,
-                    actorType: MailAuditLogAction.ACTOR_TYPE_API_KEY,
-                    actorId: apiKey.id,
+                    actorType: apiKey ? MailAuditLogAction.ACTOR_TYPE_API_KEY : MailAuditLogAction.ACTOR_TYPE_ADMIN,
+                    actorId: apiKey?.id ?? undefined,
                     entityType: MailAuditLogAction.ENTITY_TYPE_SENT_MESSAGE,
                     entityId: record.id,
                     metadata: dto,
@@ -173,8 +178,8 @@ export class MailsService {
                 await this.createAuditLog({
                     headers,
                     action: MailAuditLogAction.SEND_FAILED,
-                    actorType: MailAuditLogAction.ACTOR_TYPE_API_KEY,
-                    actorId: apiKey.id,
+                    actorType: apiKey ? MailAuditLogAction.ACTOR_TYPE_API_KEY : MailAuditLogAction.ACTOR_TYPE_ADMIN,
+                    actorId: apiKey?.id ?? undefined,
                     entityType: MailAuditLogAction.ENTITY_TYPE_SENT_MESSAGE,
                     entityId: record?.id,
                     metadata: dto,
@@ -184,7 +189,10 @@ export class MailsService {
         };
     }
 
-    private assertSenderAllowed(apiKey: ApiKey, from: string): void {
+    private assertSenderAllowed(apiKey: ApiKey | null, from: string): void {
+        // Admin callers have no key, so no per-key sender allowlist applies —
+        // they already had to authenticate as admin to get here.
+        if (!apiKey) return;
         const allowed = (apiKey.allowedFrom as string[]) ?? [];
         if (allowed.length > 0 && !allowed.includes(from)) {
             throw new ForbiddenException(`Sender "${from}" is not allowed for this API key`);
@@ -274,7 +282,7 @@ export class MailsService {
 
     private buildSendSuccessAuditMessage(
         messageId: string,
-        apiKey: ApiKey,
+        apiKey: ApiKey | null,
         dto: SendMailDto,
         attachments: UploadedAttachment[]
     ): string {
@@ -324,8 +332,8 @@ export class MailsService {
         lines.push(
             "",
             "### Request",
-            `- **API key:** ${apiKey.name} (\`${apiKey.keyPrefix}…\`)`,
-            `- **API key ID:** \`${apiKey.id}\``,
+            apiKey ? `- **API key:** ${apiKey.name} (\`${apiKey.keyPrefix}…\`)` : `- **Sent by:** admin (AI Studio)`,
+            apiKey ? `- **API key ID:** \`${apiKey.id}\`` : `- **API key ID:** none`,
             `- **Delivered at:** ${deliveredAt}`
         );
 
@@ -334,7 +342,7 @@ export class MailsService {
 
     private buildSendFailedAuditMessage(
         messageId: string,
-        apiKey: ApiKey,
+        apiKey: ApiKey | null,
         dto: SendMailDto,
         attachments: UploadedAttachment[],
         error: string
@@ -390,8 +398,8 @@ export class MailsService {
         lines.push(
             "",
             "### Request",
-            `- **API key:** ${apiKey.name} (\`${apiKey.keyPrefix}…\`)`,
-            `- **API key ID:** \`${apiKey.id}\``,
+            apiKey ? `- **API key:** ${apiKey.name} (\`${apiKey.keyPrefix}…\`)` : `- **Sent by:** admin (AI Studio)`,
+            apiKey ? `- **API key ID:** \`${apiKey.id}\`` : `- **API key ID:** none`,
             `- **Recorded in database:** yes (status updated to \`failed\`)`
         );
 
@@ -443,7 +451,10 @@ export class MailsService {
         message,
     }: {
         action: MailAuditLogAction.SEND_SUCCESS | MailAuditLogAction.SEND_FAILED;
-        actorType: MailAuditLogAction.ACTOR_TYPE_API_KEY | MailAuditLogAction.ACTOR_TYPE_SYSTEM;
+        actorType:
+            | MailAuditLogAction.ACTOR_TYPE_API_KEY
+            | MailAuditLogAction.ACTOR_TYPE_SYSTEM
+            | MailAuditLogAction.ACTOR_TYPE_ADMIN;
         actorId?: string;
         entityType?:
             | MailAuditLogAction.ENTITY_TYPE_SENT_MESSAGE

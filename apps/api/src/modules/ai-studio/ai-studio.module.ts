@@ -9,9 +9,19 @@ import { ExtractionService } from "@/modules/ai-studio/services/extraction.servi
 import { OcrService } from "@/modules/ai-studio/services/ocr.service";
 import { FactProposalService } from "@/modules/ai-studio/services/fact-proposal.service";
 import { LlmService } from "@/modules/job-finder/llm/llm.service";
+import { PdfRenderService } from "@/modules/ai-studio/services/pdf-render.service";
+import { ResumeDocumentService } from "@/modules/ai-studio/services/resume-document.service";
+import { AdminSseGuard } from "@/modules/storage/admin-sse.guard";
+import { ConversationService } from "@/modules/ai-studio/services/conversation.service";
+import { StudioToolsService } from "@/modules/ai-studio/services/studio-tools.service";
+import { StudioChatService } from "@/modules/ai-studio/services/studio-chat.service";
+import { TailoringService } from "@/modules/ai-studio/services/tailoring.service";
+import { ApplicationSendService } from "@/modules/ai-studio/services/application-send.service";
+import { MailsModule } from "@/modules/mails/mails.module";
 import { LLM_PROVIDER } from "@/modules/job-finder/llm/llm.types";
 import { OpenAiCompatibleProvider } from "@/modules/job-finder/llm/openai-compatible.provider";
 import { PeopleAdminController } from "@/modules/ai-studio/people.admin.controller";
+import { StudioAdminController } from "@/modules/ai-studio/studio.admin.controller";
 
 /**
  * AI Studio — resume builder, cover letters and the in-app data assistant.
@@ -21,8 +31,8 @@ import { PeopleAdminController } from "@/modules/ai-studio/people.admin.controll
  * Job Finder's behaviour.
  */
 @Module({
-    imports: [AuthModule, StorageModule], // AuthModule provides AdminGuard's JwtService
-    controllers: [PeopleAdminController],
+    imports: [AuthModule, StorageModule, MailsModule], // AuthModule provides AdminGuard's JwtService
+    controllers: [PeopleAdminController, StudioAdminController],
     providers: [
         ProfileCompositionService,
         StudioStorageService,
@@ -32,6 +42,14 @@ import { PeopleAdminController } from "@/modules/ai-studio/people.admin.controll
         OcrService,
         FactProposalService,
         LlmService,
+        PdfRenderService,
+        ResumeDocumentService,
+        AdminSseGuard,
+        ConversationService,
+        StudioToolsService,
+        StudioChatService,
+        TailoringService,
+        ApplicationSendService,
         // Provider-agnostic by contract: swapping hosts means binding a different
         // class here, with no call-site changes.
         { provide: LLM_PROVIDER, useClass: OpenAiCompatibleProvider },
@@ -44,6 +62,13 @@ import { PeopleAdminController } from "@/modules/ai-studio/people.admin.controll
         ExtractionService,
         OcrService,
         FactProposalService,
+        PdfRenderService,
+        ResumeDocumentService,
+        ConversationService,
+        StudioToolsService,
+        StudioChatService,
+        TailoringService,
+        ApplicationSendService,
         LLM_PROVIDER,
     ],
 })

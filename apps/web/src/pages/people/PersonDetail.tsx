@@ -6,6 +6,7 @@ import {
     Link2,
     Plus,
     Save,
+    Send,
     Sparkles,
     Trash2,
     User,
@@ -19,10 +20,11 @@ import { Modal } from "@/components/ui/Modal";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { TagInput } from "@/components/people/TagInput";
 import { AttachmentsPanel } from "@/components/people/AttachmentsPanel";
+import { ApplicationHistory } from "@/components/people/ApplicationHistory";
 import { peopleApi, type PersonDetail as PersonDetailType } from "@/lib/people";
 import { toastError, toastSuccess } from "@/lib/toast";
 
-type Section = "details" | "projects" | "experience" | "education" | "skills" | "links" | "documents";
+type Section = "details" | "projects" | "experience" | "education" | "skills" | "links" | "documents" | "applications";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
     { key: "details", label: "Details", icon: User },
@@ -32,6 +34,7 @@ const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
     { key: "skills", label: "Skills", icon: Wrench },
     { key: "links", label: "Links", icon: Link2 },
     { key: "documents", label: "Documents & facts", icon: Sparkles },
+    { key: "applications", label: "Applications", icon: Send },
 ];
 
 export function PersonDetail() {
@@ -113,6 +116,7 @@ export function PersonDetail() {
             {section === "skills" && <SkillsSection person={person} onChanged={load} />}
             {section === "links" && <LinksSection person={person} onChanged={load} />}
             {section === "documents" && <AttachmentsPanel profileId={person.id} onProfileChanged={load} />}
+            {section === "applications" && <ApplicationHistory profileId={person.id} />}
         </div>
     );
 }
@@ -131,6 +135,8 @@ function countFor(p: PersonDetailType, key: Section): number | null {
             return p.linkItems.length;
         case "documents":
             return p._count.infoItems;
+        case "applications":
+            return p._count.applications;
         default:
             return null;
     }
