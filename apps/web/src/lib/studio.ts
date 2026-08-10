@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, getToken } from "@/lib/api";
 import type { ResumeDocument, StudioConversation, StudioMessage } from "@appszone/shared";
 
 const BASE = "/admin/studio";
@@ -47,6 +47,8 @@ export const studioApi = {
         api<StudioConversation>(`${BASE}/conversations`, { method: "POST", body }),
     setContext: (id: string, body: { profileId?: string | null; postingId?: string | null }) =>
         api<StudioConversation>(`${BASE}/conversations/${id}/context`, { method: "PUT", body }),
+    renameConversation: (id: string, title: string) =>
+        api<StudioConversation>(`${BASE}/conversations/${id}/title`, { method: "PUT", body: { title } }),
     removeConversation: (id: string) => api<{ id: string }>(`${BASE}/conversations/${id}`, { method: "DELETE" }),
     ask: (id: string, question: string) =>
         api<{ answer: string; references: EntityReference[] }>(`${BASE}/conversations/${id}/ask`, {
@@ -94,4 +96,48 @@ export function routeForReference(ref: EntityReference): string | null {
         default:
             return null;
     }
+}
+
+/* ─── live thinking stream ───────────────────────────────────── */
+
+export type StudioStreamEvent =
+    | { type: "thinking"; text: string }
+    | { type: "token"; text: string }
+    | { type: "tool_call"; name: string; args: Record<string, unknown> }
+    | { type: "tool_result"; name: string; summary: string }
+    | { type: "references"; references: EntityReference[] }
+    | { type: "done"; messageId: string }
+    | { type: "error"; message: string };
+
+/**
+ * Follow a conversation's reasoning as it happens.
+ *
+ * `EventSource` rather than a fetch reader, because this endpoint is guarded by
+ * AdminSseGuard, which already accepts the admin token in the query string for
+ * exactly this reason — EventSource cannot set an Authorization header.
+ *
+ * Returns a close function.
+ */
+export function streamConversation(
+    conversationId: string,
+    onEvent: (event: StudioStreamEvent) => void
+): () => void {
+    const base = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+    const token = getToken() ?? "";
+    const source = new EventSource(
+        `${base}${BASE}/conversations/${conversationId}/stream?token=${encodeURIComponent(token)}`
+    );
+
+    source.onmessage = (message) => {
+        try {
+            onEvent(JSON.parse(message.data) as StudioStreamEvent);
+        } catch {
+            // A malformed frame should not tear down a working stream.
+        }
+    };
+    // The browser reconnects on its own; surfacing every blip as an error would
+    // make a healthy stream look broken.
+    source.onerror = () => undefined;
+
+    return () => source.close();
 }

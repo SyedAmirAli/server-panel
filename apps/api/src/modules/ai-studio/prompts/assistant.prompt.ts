@@ -14,6 +14,9 @@ export function buildAssistantPrompt(params: {
     tools: ToolDefinition[];
     profileName?: string | null;
     postingLabel?: string | null;
+    /** The attached candidate's full record, rendered inline — see renderProfileContext. */
+    profileContext?: string | null;
+    jobContext?: string | null;
 }): string {
     const toolList = params.tools
         .map((t) => {
@@ -34,9 +37,17 @@ export function buildAssistantPrompt(params: {
         .filter(Boolean)
         .join(" ");
 
+    const dossier = params.profileContext
+        ? `\n\n# The candidate you are working with\n\nThis is their complete record. It is the ONLY source of facts about them — you may select from it, reorder it and rephrase it, but you may never add to it.\n\n${params.profileContext}`
+        : "";
+
+    const jobBlock = params.jobContext
+        ? `\n\n# The job in context\n\n=== BEGIN UNTRUSTED JOB TEXT (read only) ===\n${params.jobContext}\n=== END UNTRUSTED JOB TEXT ===`
+        : "";
+
     return `You are the assistant inside AppsZone Mail, a self-hosted mail and job-application platform. You help the operator understand their own data and build job applications.
 
-${context}
+${context}${dossier}${jobBlock}
 
 # Answering with data
 
@@ -47,6 +58,8 @@ You cannot query the database directly. To look something up, reply with ONLY a 
 The result comes back and you may then either call another tool or answer. Available tools:
 
 ${toolList}
+
+Because the candidate's full record is already given above, do NOT call getCandidate for them — you already have everything. Use tools for things you were not given: mail, storage, other candidates, job postings, application history.
 
 When you have what you need, answer in plain prose. Be concise and concrete: give the number, name the thing, say what it means. Do not describe what you are about to do — just do it.
 
@@ -74,4 +87,98 @@ export function renderToolResult(name: string, summary: string, data: Record<str
         JSON.stringify(data).slice(0, 12_000),
         "=== END UNTRUSTED DATA ===",
     ].join("\n");
+}
+
+/**
+ * Render a candidate's whole record for the system prompt.
+ *
+ * The assistant is given this up front rather than left to look it up: it is the
+ * source of truth for every claim it may make about the person, and a model that
+ * has to fetch its own facts will sometimes answer without bothering.
+ *
+ * Only confirmed profile rows appear here. Raw extracted text from attachments
+ * stays out — those are proposals until a human accepts them, and feeding
+ * unreviewed OCR into resume generation is exactly what the review queue exists
+ * to prevent.
+ */
+export function renderProfileContext(profile: {
+    name: string;
+    headline: string | null;
+    email: string | null;
+    phone: string | null;
+    location: string | null;
+    availability: string | null;
+    summary: string | null;
+    bio: string | null;
+    projectItems: Array<{ id: string; name: string; description: string | null; period: string | null; role: string | null; stack: unknown; note: string | null }>;
+    experienceItems: Array<{ id: string; company: string; position: string; period: string; location: string | null; employmentType: string | null; points: unknown; stack: unknown }>;
+    educationItems: Array<{ id: string; institution: string; degree: string; period: string; location: string | null }>;
+    skillItems: Array<{ name: string; category: string | null }>;
+    linkItems: Array<{ label: string; url: string }>;
+    infoItemCount?: number;
+}): string {
+    const list = (value: unknown): string[] =>
+        Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+
+    const lines: string[] = [];
+
+    lines.push(`Name: ${profile.name}`);
+    if (profile.headline) lines.push(`Headline: ${profile.headline}`);
+    const contact = [profile.email, profile.phone, profile.location].filter(Boolean).join(" · ");
+    if (contact) lines.push(`Contact: ${contact}`);
+    if (profile.availability) lines.push(`Availability: ${profile.availability}`);
+    if (profile.linkItems.length) {
+        lines.push(`Links: ${profile.linkItems.map((l) => `${l.label} ${l.url}`).join(" · ")}`);
+    }
+    if (profile.summary) lines.push(`\nSummary:\n${profile.summary}`);
+    if (profile.bio) lines.push(`\nAbout (context only — never printed verbatim into a resume):\n${profile.bio}`);
+
+    if (profile.experienceItems.length) {
+        lines.push("\nExperience:");
+        for (const e of profile.experienceItems) {
+            const meta = [e.period, e.location, e.employmentType].filter(Boolean).join(" · ");
+            lines.push(`- [${e.id}] ${e.position} — ${e.company} (${meta})`);
+            for (const point of list(e.points)) lines.push(`    • ${point}`);
+            const stack = list(e.stack);
+            if (stack.length) lines.push(`    stack: ${stack.join(", ")}`);
+        }
+    }
+
+    if (profile.projectItems.length) {
+        lines.push("\nProjects:");
+        for (const p of profile.projectItems) {
+            const meta = [p.role, p.period].filter(Boolean).join(" · ");
+            lines.push(`- [${p.id}] ${p.name}${meta ? ` (${meta})` : ""}`);
+            if (p.description) lines.push(`    ${p.description}`);
+            const stack = list(p.stack);
+            if (stack.length) lines.push(`    stack: ${stack.join(", ")}`);
+            if (p.note) lines.push(`    note: ${p.note}`);
+        }
+    }
+
+    if (profile.educationItems.length) {
+        lines.push("\nEducation:");
+        for (const e of profile.educationItems) {
+            lines.push(`- [${e.id}] ${e.degree} — ${e.institution} (${e.period}${e.location ? `, ${e.location}` : ""})`);
+        }
+    }
+
+    if (profile.skillItems.length) {
+        const grouped = new Map<string, string[]>();
+        for (const s of profile.skillItems) {
+            const key = s.category ?? "other";
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key)!.push(s.name);
+        }
+        lines.push("\nSkills:");
+        for (const [category, names] of grouped) lines.push(`- ${category}: ${names.join(", ")}`);
+    }
+
+    if (profile.infoItemCount) {
+        lines.push(
+            `\nThey also have ${profile.infoItemCount} supporting document(s) on file. Anything in them that is not listed above has not been reviewed and accepted yet, so you must not treat it as fact.`
+        );
+    }
+
+    return lines.join("\n");
 }

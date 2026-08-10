@@ -46,6 +46,9 @@ export interface CompletionResult {
     citations?: string[];
 }
 
+/** Receives each chunk of text as the model produces it. */
+export type TokenHandler = (chunk: string) => void;
+
 export interface LlmProvider {
     readonly name: string;
     /** Model used when a caller passes none. */
@@ -53,6 +56,15 @@ export interface LlmProvider {
     /** False when the provider is unconfigured — callers should degrade, not throw. */
     isConfigured(): boolean;
     complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult>;
+    /**
+     * Same as {@link complete}, but invokes `onToken` as text arrives. Optional:
+     * a provider that cannot stream simply omits it and callers fall back.
+     */
+    completeStream?(
+        messages: ChatMessage[],
+        onToken: TokenHandler,
+        options?: CompletionOptions
+    ): Promise<CompletionResult>;
 }
 
 /** DI token — inject the interface, never a concrete provider class. */

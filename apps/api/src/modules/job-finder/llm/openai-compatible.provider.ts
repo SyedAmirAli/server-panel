@@ -6,6 +6,7 @@ import {
     CompletionResult,
     LlmProvider,
     LlmResponseError,
+    type TokenHandler,
 } from "@/modules/job-finder/llm/llm.types";
 
 /**
@@ -103,6 +104,108 @@ export class OpenAiCompatibleProvider implements LlmProvider {
                 throw new LlmResponseError(`LLM request timed out for model "${model}"`);
             }
             throw new LlmResponseError(`LLM request errored for model "${model}": ${(err as Error).message}`);
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /**
+     * Streaming variant, using the OpenAI-compatible `stream: true` protocol.
+     *
+     * The body arrives as `data: {...}` lines terminated by `data: [DONE]`.
+     * Chunks do not align with line boundaries, so a partial line is carried
+     * over between reads — splitting naively drops or corrupts tokens under any
+     * real network.
+     */
+    async completeStream(
+        messages: ChatMessage[],
+        onToken: TokenHandler,
+        options: CompletionOptions = {}
+    ): Promise<CompletionResult> {
+        if (!this.isConfigured()) {
+            throw new LlmResponseError("LLM provider is not configured (AI_BASE_URL / AI_API_KEY missing).");
+        }
+
+        const model = options.model || this.defaultModel;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 120_000);
+
+        try {
+            const res = await fetch(`${this.baseUrl}/chat/completions`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${this.apiKey}`,
+                    Accept: "text/event-stream",
+                },
+                body: JSON.stringify({
+                    model,
+                    messages,
+                    temperature: options.temperature ?? 0.2,
+                    max_tokens: options.maxTokens,
+                    stream: true,
+                }),
+                signal: controller.signal,
+            });
+
+            if (!res.ok || !res.body) {
+                const body = await res.text().catch(() => "");
+                throw new LlmResponseError(
+                    `LLM stream failed (${res.status} ${res.statusText}) for model "${model}"`,
+                    body.slice(0, 2000)
+                );
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let text = "";
+            let reportedModel = model;
+
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                // Keep the trailing fragment — it is very likely a partial line.
+                buffer = lines.pop() ?? "";
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data:")) continue;
+                    const payload = trimmed.slice(5).trim();
+                    if (!payload || payload === "[DONE]") continue;
+
+                    try {
+                        const chunk = JSON.parse(payload) as {
+                            model?: string;
+                            choices?: Array<{ delta?: { content?: string } }>;
+                        };
+                        if (chunk.model) reportedModel = chunk.model;
+                        const piece = chunk.choices?.[0]?.delta?.content;
+                        if (piece) {
+                            text += piece;
+                            onToken(piece);
+                        }
+                    } catch {
+                        // A malformed chunk must not abort a stream that is
+                        // otherwise producing usable text.
+                    }
+                }
+            }
+
+            if (!text.trim()) {
+                throw new LlmResponseError(`LLM stream produced no text for model "${model}"`);
+            }
+
+            return { text, model: reportedModel };
+        } catch (err) {
+            if (err instanceof LlmResponseError) throw err;
+            if ((err as Error)?.name === "AbortError") {
+                throw new LlmResponseError(`LLM stream timed out for model "${model}"`);
+            }
+            throw new LlmResponseError(`LLM stream errored for model "${model}": ${(err as Error).message}`);
         } finally {
             clearTimeout(timeout);
         }

@@ -132,6 +132,16 @@ export class ConversationService {
             .map((r) => ({ role: r.role as "user" | "assistant", content: r.content as string }));
     }
 
+    /** Rename a conversation. Titles are auto-set from the first question, but a
+     *  long-running thread deserves a name its owner chose. */
+    async rename(id: string, title: string) {
+        await this.getOne(id);
+        return this.prisma.studioConversation.update({
+            where: { id },
+            data: { title: title.trim().slice(0, 200) || null },
+        });
+    }
+
     async remove(id: string) {
         await this.getOne(id);
         await this.prisma.studioConversation.delete({ where: { id } });

@@ -40,6 +40,24 @@ export class LlmService {
      * reasoning first. `extractJson` handles those shapes; a failed parse is
      * retried once with an explicit correction turn before giving up.
      */
+    /**
+     * Stream a completion, calling `onToken` as text arrives. Falls back to a
+     * single non-streaming call when the provider cannot stream, so callers get
+     * one code path either way.
+     */
+    async completeStream(
+        messages: ChatMessage[],
+        onToken: (chunk: string) => void,
+        options: CompletionOptions = {}
+    ): Promise<CompletionResult> {
+        if (this.provider.completeStream) {
+            return this.provider.completeStream(messages, onToken, options);
+        }
+        const result = await this.provider.complete(messages, options);
+        onToken(result.text);
+        return result;
+    }
+
     async completeJson<T>(
         messages: ChatMessage[],
         options: CompletionOptions = {}

@@ -115,6 +115,13 @@ export class StudioAdminController {
         return ApiResponse.success(await this.conversations.setContext(id, body), "Context updated");
     }
 
+    @Put("conversations/:id/title")
+    @UseGuards(AdminGuard)
+    @ApiOperation({ summary: "Rename a conversation" })
+    async renameConversation(@Param("id") id: string, @Body() body: { title: string }) {
+        return ApiResponse.success(await this.conversations.rename(id, body.title), "Renamed");
+    }
+
     @Delete("conversations/:id")
     @UseGuards(AdminGuard)
     async removeConversation(@Param("id") id: string) {
