@@ -54,6 +54,12 @@ export interface JobSourceAdapter {
     /** True when the adapter needs API keys to work at all. */
     readonly requiresCredentials: boolean;
     /**
+     * Whether the source is switched on the first time it is seen. Defaults to
+     * true; set false for a source that is present but should not run until the
+     * operator decides to enable it.
+     */
+    readonly defaultActive?: boolean;
+    /**
      * False when a credentialed adapter is missing its keys. The runner skips
      * such sources with a log line instead of failing the whole run.
      */

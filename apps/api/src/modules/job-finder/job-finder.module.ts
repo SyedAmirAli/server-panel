@@ -6,6 +6,8 @@ import { LlmService } from "@/modules/job-finder/llm/llm.service";
 import { RemotiveSource } from "@/modules/job-finder/sources/remotive.source";
 import { RemoteOkSource } from "@/modules/job-finder/sources/remoteok.source";
 import { ArbeitnowSource } from "@/modules/job-finder/sources/arbeitnow.source";
+import { UnstopSource } from "@/modules/job-finder/sources/unstop.source";
+import { FounditSource } from "@/modules/job-finder/sources/foundit.source";
 import { JobicySource } from "@/modules/job-finder/sources/jobicy.source";
 import { AdzunaSource } from "@/modules/job-finder/sources/adzuna.source";
 import { UrlImportSource } from "@/modules/job-finder/sources/url-import.source";
@@ -42,6 +44,8 @@ import { JobFinderAdminController } from "@/modules/job-finder/job-finder.admin.
         RemoteOkSource,
         ArbeitnowSource,
         JobicySource,
+        UnstopSource,
+        FounditSource,
         AdzunaSource,
         UrlImportSource,
         LinkedInEmailSource,

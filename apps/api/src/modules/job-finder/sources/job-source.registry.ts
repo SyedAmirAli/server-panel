@@ -4,6 +4,8 @@ import { JobSourceAdapter } from "@/modules/job-finder/sources/job-source.types"
 import { RemotiveSource } from "@/modules/job-finder/sources/remotive.source";
 import { RemoteOkSource } from "@/modules/job-finder/sources/remoteok.source";
 import { ArbeitnowSource } from "@/modules/job-finder/sources/arbeitnow.source";
+import { UnstopSource } from "@/modules/job-finder/sources/unstop.source";
+import { FounditSource } from "@/modules/job-finder/sources/foundit.source";
 import { JobicySource } from "@/modules/job-finder/sources/jobicy.source";
 import { AdzunaSource } from "@/modules/job-finder/sources/adzuna.source";
 import { UrlImportSource } from "@/modules/job-finder/sources/url-import.source";
@@ -27,11 +29,13 @@ export class JobSourceRegistry implements OnModuleInit {
         remoteOk: RemoteOkSource,
         arbeitnow: ArbeitnowSource,
         jobicy: JobicySource,
+        unstop: UnstopSource,
+        foundit: FounditSource,
         adzuna: AdzunaSource,
         urlImport: UrlImportSource,
         linkedInEmail: LinkedInEmailSource
     ) {
-        this.adapters = [remotive, remoteOk, arbeitnow, jobicy, adzuna, urlImport, linkedInEmail];
+        this.adapters = [remotive, remoteOk, arbeitnow, jobicy, unstop, foundit, adzuna, urlImport, linkedInEmail];
     }
 
     async onModuleInit(): Promise<void> {
@@ -69,8 +73,12 @@ export class JobSourceRegistry implements OnModuleInit {
                     adapter: adapter.key,
                     requiresCredentials: adapter.requiresCredentials,
                     credentialsReady: ready,
-                    // Credentialed and on-demand adapters start off; boards start on.
-                    isActive: !adapter.requiresCredentials && adapter.key !== "url-import",
+                    // Credentialed and on-demand adapters start off; boards start on,
+                    // unless the adapter itself asks to stay off (see foundit).
+                    isActive:
+                        !adapter.requiresCredentials &&
+                        adapter.key !== "url-import" &&
+                        (adapter.defaultActive ?? true),
                     config: {},
                 },
             });
