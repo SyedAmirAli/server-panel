@@ -25,6 +25,8 @@ import { StoragePublicController } from "@/modules/storage/storage.public.contro
         StorageApiKeyGuard,
         AdminSseGuard,
     ],
-    exports: [StorageKeysService, BucketsService],
+    // S3ClientService is exported so AI Studio can store documents through the
+    // same encrypted-credential path instead of opening its own S3 client.
+    exports: [StorageKeysService, BucketsService, S3ClientService],
 })
 export class StorageModule {}

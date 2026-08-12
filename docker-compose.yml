@@ -1,22 +1,55 @@
+# The container is configured entirely by the repo's single .env — the same file
+# the API and the SPA read — so no variable is repeated here and editing that one
+# file is the only step needed to change runtime config. `docker compose config`
+# prints the resolved values if you want to check what the container will see.
 services:
     app:
         build:
             context: .
             dockerfile: Dockerfile
 
-        image: appszone-mail-server
-        container_name: appszone-mail-server
+        # Registry path must be lowercase — Docker rejects "SyedAmirAli" in a
+        # reference. GHCR treats the owner segment case-insensitively, so this
+        # resolves to the same package as github.com/SyedAmirAli.
+        # `docker compose build` tags it directly; `yarn docker:push` publishes it.
+        image: ghcr.io/syedamirali/server-panel:latest
+        container_name: server-panel
         restart: unless-stopped
 
+        # PID 1 signal handling and zombie reaping. This is what replaced the
+        # old docker-entrypoint.sh; the container now just runs the server.
+        init: true
+
+        # The one and only env file. Compose expands ${VAR} references inside it
+        # (DATABASE_URL is built from PG_*) before handing the values over.
+        env_file:
+            - path: .env
+              required: true
+
+        # Bound to loopback on purpose: nginx is the front door in production, and
+        # docker's published ports bypass ufw — "4010:4010" would expose the API
+        # to the internet regardless of the firewall. Browse http://localhost:4010.
         ports:
-            - "4010:4010"
+            - "127.0.0.1:4010:4010"
 
         extra_hosts:
+            # Postgres runs on the host itself, not as a container. This lets the
+            # container resolve host.docker.internal on Linux too (Docker Desktop
+            # provides it out of the box). Set PG_HOST=host.docker.internal in the
+            # .env that sits next to this file — that host is the one value that
+            # genuinely differs between a native run and a containerised one.
             - "host.docker.internal:host-gateway"
 
-        environment:
-            MYSQL_HOST: host.docker.internal
-            MYSQL_PORT: 3306
-            MYSQL_DATABASE: apz_mailserver
-            MYSQL_USER: root
-            MYSQL_PASSWORD: 12345678
+        # Let in-flight sends and the Chromium renderer finish before SIGKILL.
+        stop_grace_period: 30s
+
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "5"
+
+        # The Job Finder resume importer reads RESUME_SOURCE_PATH from disk.
+        # Mount it read-only at the same path if you use that feature:
+        # volumes:
+        #     - /home/syedamirali/Desktop/Development/my-projects/resume:/home/syedamirali/Desktop/Development/my-projects/resume:ro

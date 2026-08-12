@@ -5,12 +5,15 @@ import { toastError } from "@/lib/toast";
 export interface CursorPage<T> {
     data: T[];
     nextCursor: string | null;
+    /** Total rows matching the current search, independent of how many are loaded so far. Optional — not every cursor endpoint computes it. */
+    total?: number;
 }
 
 export type CursorFetcher<T> = (params: { cursor?: string; limit: number; search: string }) => Promise<CursorPage<T>>;
 
 export interface UseCursorPaginatedResult<T> {
     data: T[];
+    total: number | undefined;
     isLoading: boolean;
     isLoadingMore: boolean;
     hasMore: boolean;
@@ -18,6 +21,12 @@ export interface UseCursorPaginatedResult<T> {
     setSearch: (s: string) => void;
     loadMore: () => void;
     refresh: () => void;
+    /** True paging (replaces `data` instead of appending) — for prev/next arrow UIs instead of "Load more". */
+    pageIndex: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+    goToNextPage: () => void;
+    goToPrevPage: () => void;
 }
 
 /**
@@ -42,10 +51,15 @@ export function useCursorPaginated<T>(
     const [debouncedSearch, setDebouncedSearch] = useState(search);
 
     const [data, setData] = useState<T[]>([]);
+    const [total, setTotal] = useState<number | undefined>(undefined);
     const [nextCursor, setNextCursor] = useState<string | undefined>(initialCursor);
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [tick, setTick] = useState(0);
+    // Cursor used to fetch each visited page, indexed by page number (index 0 = the start).
+    // Lets goToPrevPage re-fetch an earlier page without the server needing backward cursors.
+    const pageCursorsRef = useRef<(string | undefined)[]>([initialCursor]);
+    const [pageIndex, setPageIndex] = useState(0);
     const fetcherRef = useRef(fetcher);
     useEffect(() => {
         fetcherRef.current = fetcher;
@@ -65,12 +79,15 @@ export function useCursorPaginated<T>(
         let cancelled = false;
         const resumeCursor = isFirstRun.current ? initialCursor : undefined;
         isFirstRun.current = false;
+        pageCursorsRef.current = [resumeCursor];
+        setPageIndex(0);
         setIsLoading(true);
         fetcherRef
             .current({ cursor: resumeCursor, limit, search: debouncedSearch })
             .then((page) => {
                 if (cancelled) return;
                 setData(page.data);
+                setTotal(page.total);
                 setNextCursor(page.nextCursor ?? undefined);
                 setSearchParams(
                     (prev) => {
@@ -102,6 +119,7 @@ export function useCursorPaginated<T>(
             .current({ cursor: nextCursor, limit, search: debouncedSearch })
             .then((page) => {
                 setData((prev) => [...prev, ...page.data]);
+                setTotal(page.total);
                 setNextCursor(page.nextCursor ?? undefined);
                 setSearchParams(
                     (prev) => {
@@ -116,11 +134,66 @@ export function useCursorPaginated<T>(
             .finally(() => setIsLoadingMore(false));
     }, [nextCursor, isLoadingMore, limit, debouncedSearch, cursorParam, setSearchParams]);
 
+    // True paging: fetches with the cursor for the target page and replaces `data`, rather
+    // than appending like loadMore. goToPrevPage re-fetches from a cursor recorded on the
+    // way forward — the API only supports forward cursors, so going back means re-requesting
+    // the earlier page rather than walking data already in memory.
+    const goToNextPage = useCallback(() => {
+        if (!nextCursor || isLoadingMore) return;
+        setIsLoadingMore(true);
+        fetcherRef
+            .current({ cursor: nextCursor, limit, search: debouncedSearch })
+            .then((page) => {
+                pageCursorsRef.current[pageIndex + 1] = nextCursor;
+                setData(page.data);
+                setTotal(page.total);
+                setNextCursor(page.nextCursor ?? undefined);
+                setPageIndex((i) => i + 1);
+                setSearchParams(
+                    (prev) => {
+                        const next = new URLSearchParams(prev);
+                        next.set(cursorParam, nextCursor);
+                        return next;
+                    },
+                    { replace: true }
+                );
+            })
+            .catch((err: Error) => toastError(err.message || "Failed to load next page"))
+            .finally(() => setIsLoadingMore(false));
+    }, [nextCursor, isLoadingMore, limit, debouncedSearch, cursorParam, pageIndex, setSearchParams]);
+
+    const goToPrevPage = useCallback(() => {
+        if (pageIndex <= 0 || isLoadingMore) return;
+        const targetIndex = pageIndex - 1;
+        const targetCursor = pageCursorsRef.current[targetIndex];
+        setIsLoadingMore(true);
+        fetcherRef
+            .current({ cursor: targetCursor, limit, search: debouncedSearch })
+            .then((page) => {
+                setData(page.data);
+                setTotal(page.total);
+                setNextCursor(page.nextCursor ?? undefined);
+                setPageIndex(targetIndex);
+                setSearchParams(
+                    (prev) => {
+                        const next = new URLSearchParams(prev);
+                        if (targetCursor) next.set(cursorParam, targetCursor);
+                        else next.delete(cursorParam);
+                        return next;
+                    },
+                    { replace: true }
+                );
+            })
+            .catch((err: Error) => toastError(err.message || "Failed to load previous page"))
+            .finally(() => setIsLoadingMore(false));
+    }, [pageIndex, isLoadingMore, limit, debouncedSearch, cursorParam, setSearchParams]);
+
     const setSearch = useCallback((s: string) => setSearchState(s), []);
     const refresh = useCallback(() => setTick((t) => t + 1), []);
 
     return {
         data,
+        total,
         isLoading,
         isLoadingMore,
         hasMore: !!nextCursor,
@@ -128,5 +201,10 @@ export function useCursorPaginated<T>(
         setSearch,
         loadMore,
         refresh,
+        pageIndex,
+        hasNextPage: !!nextCursor,
+        hasPrevPage: pageIndex > 0,
+        goToNextPage,
+        goToPrevPage,
     };
 }

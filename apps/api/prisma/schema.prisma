@@ -3,10 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider          = "mysql"
-  url               = env("DATABASE_URL")
-  // Dedicated shadow DB so the app user needs no global create-database grant.
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model ApiKey {
@@ -68,8 +66,8 @@ model MailMessage {
   bcc         Json? // string[]
   subject     String   @db.Text
   snippet     String   @db.Text
-  body        String   @db.LongText
-  html        String?  @db.LongText
+  body        String   @db.Text
+  html        String?  @db.Text
   flags       Json? // string[] of IMAP flags (\Seen, \Answered, \Flagged, ...)
   attachments Json? // [{ filename, contentType, size }] metadata only, no blob storage
   receivedAt DateTime
@@ -216,4 +214,611 @@ model StorageObject {
   @@index([bucketId, prefix])
   @@index([createdAt])
   @@map("storage_objects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job Finder / Job Application Assistant
+//
+// Fully additive module. Nothing above this line is modified by it. The link to
+// SentMessage (JobApplication.sentMessageId) is deliberately a loose string
+// rather than a relation, so the existing SentMessage model stays untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Normalized, source-of-truth candidate representation. Imported *from* the
+/// resume repo (which is never written to) and then used for matching and
+/// application generation.
+model CandidateProfile {
+  id           String  @id @default(cuid())
+  name         String  @db.VarChar(191)
+  headline     String? @db.Text
+  email        String? @db.VarChar(191)
+  phone        String? @db.VarChar(64)
+  location     String? @db.VarChar(191)
+  timezone     String? @db.VarChar(64)
+  availability String? @db.Text
+  summary      String? @db.Text
+
+  // MySQL has no scalar list type — normalized collections are stored as Json.
+  titles         Json // string[]
+  skills         Json // [{ name, category?, highlighted? }]
+  experience     Json // [{ company, position, period, location?, points[], stack[]? }]
+  education      Json // [{ institution, degree, period, location? }]
+  projects       Json // [{ name, description, stack[], metrics[]? }]
+  certifications Json?
+  languages      Json?
+  links          Json? // [{ label, url }] — kept for reference; never emitted into emails
+
+  // Provenance of the import, so a re-import can detect drift without guessing.
+  sourceType String  @default("repo") @db.VarChar(32) // repo | pdf | paste
+  sourcePath String? @db.Text
+  sourceHash String? @db.VarChar(128) // sha256 of the raw source at import time
+  rawSource  String? @db.Text
+
+  /// Free-form "about me", separate from the CV summary — feeds the Studio chat
+  /// as context but is never printed verbatim into a resume.
+  bio             String? @db.Text
+  /// string[] — roles this person is actually targeting, which is not always
+  /// what the CV headline says.
+  preferredTitles Json?
+
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches      JobMatch[]
+  applications JobApplication[]
+
+  // AI Studio — relational detail. The Json columns above are derived from these.
+  projectItems    ProfileProject[]
+  experienceItems ProfileExperience[]
+  skillItems      ProfileSkill[]
+  linkItems       ProfileLink[]
+  educationItems  ProfileEducation[]
+  infoItems       ProfileInfoItem[]
+  factProposals   ProfileFactProposal[]
+  documents       ResumeDocument[]
+  conversations   StudioConversation[]
+
+  @@index([isDefault])
+  @@map("candidate_profiles")
+}
+
+/// A pluggable discovery adapter (free board API, grounded web search, URL
+/// import, LinkedIn alert-email parser, Adzuna…). Rows are seeded on boot;
+/// `isActive` and `config` are admin-editable.
+model JobSource {
+  id      String @id @default(cuid())
+  key     String @unique @db.VarChar(64) // remotive | remoteok | arbeitnow | jobicy | websearch | url-import | linkedin-email | adzuna
+  name    String @db.VarChar(120)
+  adapter String @db.VarChar(64)
+
+  isActive Boolean @default(true)
+  config   Json? // adapter-specific: queries[], locations[], remoteOnly, mailboxId, model…
+
+  /// Adapters needing keys (Adzuna) ship disabled until the env vars are present.
+  requiresCredentials Boolean @default(false)
+  credentialsReady    Boolean @default(true)
+
+  lastRunAt     DateTime?
+  lastRunStatus String?   @db.VarChar(32)
+  lastRunError  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postings JobPosting[]
+
+  @@index([isActive])
+  @@map("job_sources")
+}
+
+/// A single normalized job posting, deduplicated across every source.
+model JobPosting {
+  id         String     @id @default(cuid())
+  sourceId   String?
+  source     JobSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  externalId String?    @db.VarChar(191) // provider's own id, when it has one
+
+  /// sha256(normalized company | title | canonical url) — the cross-source dedupe key.
+  dedupeHash String @unique @db.VarChar(64)
+
+  title          String  @db.VarChar(255)
+  company        String  @db.VarChar(191)
+  companyUrl     String? @db.Text
+  location       String? @db.VarChar(191)
+  isRemote       Boolean @default(false)
+  employmentType String? @db.VarChar(64)
+
+  salaryRaw String? @db.VarChar(191)
+  salaryMin Int?
+  salaryMax Int?
+  currency  String? @db.VarChar(8)
+
+  url          String  @db.Text
+  applyUrl     String? @db.Text
+  applyEmail   String? @db.VarChar(191)
+  description  String? @db.Text
+  tags         Json?
+  requirements Json?
+
+  postedAt     DateTime? // provider-reported publish time; drives the 24h window
+  discoveredAt DateTime  @default(now())
+  expiresAt    DateTime?
+
+  /// new | scored | shortlisted | applied | dismissed | archived
+  status String @default("new") @db.VarChar(32)
+
+  raw Json? // untouched provider payload, for debugging adapters
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches      JobMatch[]
+  applications  JobApplication[]
+  documents     ResumeDocument[]
+  conversations StudioConversation[]
+
+  @@index([postedAt])
+  @@index([status])
+  @@index([sourceId])
+  @@index([discoveredAt])
+  @@map("job_postings")
+}
+
+/// LLM-produced fit assessment of one posting against one candidate profile.
+model JobMatch {
+  id        String           @id @default(cuid())
+  postingId String
+  posting   JobPosting       @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  stars   Int // 1–5, what the list UI renders
+  score   Int // 0–100, the finer-grained ordering key behind the stars
+  verdict String? @db.VarChar(64) // strong | good | stretch | weak
+  summary String? @db.Text
+
+  strengths     Json? // string[] — evidence drawn only from the profile
+  gaps          Json? // string[] — JD requirements the profile does not show
+  matchedSkills Json?
+  missingSkills Json?
+
+  model    String?  @db.VarChar(120)
+  scoredAt DateTime @default(now())
+
+  @@unique([postingId, profileId])
+  @@index([stars])
+  @@map("job_matches")
+}
+
+/// A generated application (email draft by default), following the rules in the
+/// resume repo's skills/job-application.md.
+model JobApplication {
+  id        String           @id @default(cuid())
+  postingId String
+  posting   JobPosting       @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// draft | ready | sent | replied | rejected
+  status  String @default("draft") @db.VarChar(32)
+  channel String @default("email") @db.VarChar(32) // email | url
+
+  toEmail  String? @db.VarChar(191)
+  subject  String? @db.Text
+  body     String? @db.Text
+  /// Gaps are reported to the candidate, never written into the email body.
+  gapsNote String? @db.Text
+
+  model String? @db.VarChar(120)
+
+  /// Loose reference to SentMessage.id — intentionally not a relation, so the
+  /// existing SentMessage model needs no back-reference.
+  sentMessageId String?
+  sentAt        DateTime?
+
+  // Which documents actually went out, and from which mailbox. `documents` below
+  // lists everything generated for this application; these two pin the versions
+  // the employer received.
+  resumeDocumentId      String?
+  coverLetterDocumentId String?
+  /// Loose reference to EmailConfig.id — same reasoning as sentMessageId.
+  emailConfigId         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents ResumeDocument[]
+
+  @@index([status])
+  @@index([postingId])
+  @@map("job_applications")
+}
+
+/// One execution of the discovery pipeline — cron or "Find Now".
+model JobRun {
+  id      String @id @default(cuid())
+  trigger String @db.VarChar(32) // manual | cron
+  /// running | success | partial | failed | cancelled
+  status  String @default("running") @db.VarChar(32)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  sourcesRun Json? // string[] of JobSource.key actually executed
+  stats      Json? // { discovered, deduped, inserted, scored, errors }
+  error      String? @db.Text
+
+  logs JobRunLog[]
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("job_runs")
+}
+
+/// Append-only log line for a run — this is what the terminal view streams.
+model JobRunLog {
+  id    String @id @default(cuid())
+  runId String
+  run   JobRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  seq     Int // monotonic within a run, so the terminal can order/resume
+  level   String  @default("info") @db.VarChar(16) // debug | info | warn | error | success
+  source  String? @db.VarChar(64) // JobSource.key, when attributable
+  message String  @db.Text
+  data    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([runId, seq])
+  @@map("job_run_logs")
+}
+
+/// Single-row settings for the module (schedule, thresholds, model choices).
+model JobFinderSetting {
+  id String @id @default("default")
+
+  cronEnabled    Boolean @default(false)
+  cronExpression String  @default("0 */6 * * *") @db.VarChar(64)
+
+  lookbackHours Int @default(24) // the "posted in the last 24h" window
+  minStars      Int @default(3) // below this, postings are kept but not surfaced by default
+  maxJobsPerRun Int @default(60)
+
+  scoringModel String @default("auto/best-fast") @db.VarChar(120)
+  writingModel String @default("auto/best-coding") @db.VarChar(120)
+  /// Used by the URL importer to normalize a fetched job page into a posting.
+  extractionModel String @default("auto/best-fast") @db.VarChar(120)
+
+  keywords         Json? // string[] — role queries fanned out to search adapters
+  locations        Json? // string[]
+  excludeCompanies Json? // string[]
+
+  activeProfileId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("job_finder_settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — relational candidate detail
+// The JSON columns on CandidateProfile above stay as a derived cache so Job
+// Finder scoring keeps working unchanged; these rows are the source of truth
+// and the only thing that supports per-item editing and per-resume selection.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ProfileProject {
+  id        String @id @default(cuid())
+  profileId String
+
+  name        String  @db.VarChar(191)
+  description String? @db.Text
+  role        String? @db.VarChar(191)
+  period      String? @db.VarChar(120)
+
+  /// string[] — tech tags. The ranking key for tailoring, so this is where a
+  /// Laravel role and a Next.js role part ways. Required in the DTO.
+  stack   Json
+  metrics Json? // [[label, value], …]
+  note    String? @db.Text // attribution as written (solo vs team)
+  url     String? @db.Text
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_projects")
+}
+
+model ProfileExperience {
+  id        String @id @default(cuid())
+  profileId String
+
+  company        String  @db.VarChar(191)
+  position       String  @db.VarChar(191)
+  /// Verbatim from the CV — never recomputed into a new duration.
+  period         String  @db.VarChar(120)
+  location       String? @db.VarChar(191)
+  /// Employment nature as stated (full-time, part-time, internship…). Part-time
+  /// stays part-time in every generated document.
+  employmentType String? @db.VarChar(64)
+
+  points Json // string[]
+  stack  Json? // string[]
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_experiences")
+}
+
+model ProfileSkill {
+  id        String @id @default(cuid())
+  profileId String
+
+  name        String  @db.VarChar(120)
+  category    String? @db.VarChar(64) // language | framework | database | tooling | cloud
+  level       String? @db.VarChar(32)
+  highlighted Boolean @default(false)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, name])
+  @@index([profileId, sortOrder])
+  @@map("profile_skills")
+}
+
+model ProfileLink {
+  id        String @id @default(cuid())
+  profileId String
+
+  label String @db.VarChar(120)
+  url   String @db.Text
+  /// linkedin | github | portfolio | other — lets the ATS header pick the ones
+  /// worth printing without string-matching the URL.
+  kind  String @default("other") @db.VarChar(32)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_links")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — supporting information and the fact review queue
+// Attachments are ingested, extracted, then *proposed*. Nothing merges into the
+// profile without review: one bad OCR pass would otherwise quietly poison every
+// resume generated afterwards, and nobody rereads the profile before Execute.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ProfileInfoItem {
+  id        String @id @default(cuid())
+  profileId String
+
+  /// pdf | image | textfile | note — "note" is typed straight in and skips
+  /// extraction entirely; it is already text.
+  kind  String  @db.VarChar(32)
+  title String? @db.VarChar(191)
+
+  /// Extracted (or typed) text. Kept verbatim and never discarded, so any fact
+  /// derived from it can be traced back to its source.
+  rawText String? @db.Text
+
+  // Object location, stored in parts rather than one concatenated key so files
+  // can be moved or re-derived without string surgery.
+  bucketId   String?
+  folder     String? @db.VarChar(512)
+  fileName   String? @db.VarChar(512)
+  storageKey String? @db.VarChar(768)
+  mimeType   String? @db.VarChar(191)
+  sizeBytes  Int?
+
+  /// pending | done | failed | skipped — a failed extraction never blocks the
+  /// upload, it just leaves the item retryable.
+  extractionStatus String  @default("pending") @db.VarChar(32)
+  extractionError  String? @db.Text
+  model            String? @db.VarChar(120)
+  extractedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile   CandidateProfile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  proposals ProfileFactProposal[]
+
+  @@index([profileId, createdAt])
+  @@index([extractionStatus])
+  @@map("profile_info_items")
+}
+
+model ProfileFactProposal {
+  id         String  @id @default(cuid())
+  profileId  String
+  infoItemId String?
+
+  /// project | experience | skill | link | field — what accepting this would write.
+  targetType String @db.VarChar(32)
+  /// The candidate row itself, shaped for targetType.
+  payload    Json
+  /// Model's own confidence, used only to order the review queue.
+  confidence Int?    @default(0)
+
+  /// pending | accepted | rejected
+  status     String    @default("pending") @db.VarChar(32)
+  reviewedAt DateTime?
+  /// Set when accepting created a row, so a mistaken accept can be traced back.
+  createdRowId String? @db.VarChar(64)
+
+  model     String?  @db.VarChar(120)
+  createdAt DateTime @default(now())
+
+  profile  CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  infoItem ProfileInfoItem? @relation(fields: [infoItemId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, status])
+  @@index([infoItemId])
+  @@map("profile_fact_proposals")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — generated documents
+// A document snapshots its own content. It deliberately does NOT read through
+// to live profile rows: once a PDF has gone to an employer, editing a project
+// description next month must not make our records disagree with their copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ResumeDocument {
+  id            String  @id @default(cuid())
+  profileId     String
+  postingId     String?
+  applicationId String?
+
+  /// resume | cover_letter
+  kind   String @db.VarChar(32)
+  /// pdf | text — cover letters are rendered to PDF *and* kept as text, because
+  /// the text is the email body and the PDF is the attachment.
+  format String @default("pdf") @db.VarChar(16)
+  title  String @db.VarChar(255)
+
+  /// The immutable resolved content this document was rendered from.
+  contentJson Json
+  /// Numbered content blocks. Numbers are display for stable block IDs, not
+  /// wrapped visual lines — visual numbering renumbers on every edit, so a later
+  /// "also fix line 24" would land on the wrong content.
+  blocks      Json?
+
+  // Object location, stored in parts (see ProfileInfoItem). bucketId is a loose
+  // reference, not a relation, so the pre-existing Bucket model needs no
+  // back-reference.
+  bucketId   String?
+  folder     String? @db.VarChar(512)
+  fileName   String? @db.VarChar(512)
+  storageKey String? @db.VarChar(768)
+  sizeBytes  Int?
+  pageCount  Int?
+
+  /// Populated when the fabrication guard flagged unsupported claims.
+  warnings Json?
+  model    String? @db.VarChar(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile     CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  posting     JobPosting?      @relation(fields: [postingId], references: [id], onDelete: SetNull)
+  application JobApplication?  @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, createdAt])
+  @@index([postingId])
+  @@index([applicationId])
+  @@map("resume_documents")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — conversations
+// One chat surface whose capability grows with context: with no profile or
+// posting attached it answers questions about platform data; attach both and
+// it tailors a resume. Tool calls are persisted alongside their results so a
+// resumed conversation can show how an answer was actually reached.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model StudioConversation {
+  id        String  @id @default(cuid())
+  profileId String?
+  postingId String?
+
+  /// general | candidate | tailoring — derived from what is attached, stored so
+  /// the list view does not have to re-derive it.
+  mode  String  @default("general") @db.VarChar(32)
+  title String? @db.VarChar(255)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Cascade, not SetNull: a conversation that was *about* a candidate carries
+  // their CV details in the transcript, so orphaning it would leave that data
+  // sitting in a chat that now looks like a general one. Conversations that were
+  // never tied to a profile have profileId = null and are unaffected.
+  profile  CandidateProfile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  // Postings are different — losing a job posting should not destroy the
+  // conversation, which is still about the candidate.
+  posting  JobPosting?       @relation(fields: [postingId], references: [id], onDelete: SetNull)
+  messages StudioMessage[]
+
+  @@index([updatedAt])
+  @@index([profileId])
+  @@map("studio_conversations")
+}
+
+model StudioMessage {
+  id             String @id @default(cuid())
+  conversationId String
+
+  /// user | assistant | tool
+  role    String  @db.VarChar(16)
+  content String? @db.Text
+
+  // Tool calls are recorded rather than collapsed into prose, so "how many email
+  // configs are there" can be re-checked against what was actually queried.
+  toolName   String? @db.VarChar(120)
+  toolArgs   Json?
+  toolResult Json?
+
+  /// [{ type, id }] entity references the UI turns into routes. The model never
+  /// emits URLs directly — asked for one it invents paths that 404.
+  references Json?
+
+  model  String? @db.VarChar(120)
+  tokens Int?
+
+  createdAt DateTime @default(now())
+
+  conversation StudioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("studio_messages")
+}
+
+model ProfileEducation {
+  id        String @id @default(cuid())
+  profileId String
+
+  institution String  @db.VarChar(191)
+  degree      String  @db.VarChar(191)
+  /// Verbatim from the CV, like ProfileExperience.period.
+  period      String  @db.VarChar(120)
+  location    String? @db.VarChar(191)
+  note        String? @db.Text
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_educations")
 }

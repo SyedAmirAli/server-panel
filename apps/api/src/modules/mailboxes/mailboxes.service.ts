@@ -145,6 +145,8 @@ export class MailboxesService {
             logger: false,
             verifyOnly: true,
         });
+        // See mail-sync.service.ts: an unhandled 'error' event crashes the process.
+        client.on("error", () => undefined);
         try {
             await client.connect();
             return { ok: true };

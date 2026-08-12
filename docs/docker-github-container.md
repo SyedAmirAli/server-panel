@@ -1,5 +1,11 @@
 # AppsZone Mail Server Docker + GHCR Deployment Notes
 
+> **Note (2026-08-12):** the image was renamed to **`ghcr.io/syedamirali/server-panel:latest`**
+> and `docker-compose.yml` now carries that name directly, so `docker compose build`
+> tags it and `docker compose push` (`yarn docker:push`) publishes it — the manual
+> `docker tag` step below is no longer needed. The old `appszone-mail-server` name is
+> kept in the log that follows as a record of the original session.
+
 ## Goal
 
 AppsZone Mail Server Docker image local machine থেকে GitHub Container Registry `GHCR`-এ push করা এবং পরে সার্ভারে container হিসেবে run করা।

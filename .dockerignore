@@ -2,12 +2,33 @@ node_modules
 **/node_modules
 **/dist
 .git
+.gitignore
 .turbo
 **/.turbo
 *.log
+
+# Never bake configuration into a layer — compose passes the single root .env to
+# the container at run time. The extra patterns are belt-and-braces against a
+# stray per-app env file reappearing.
 .env
-apps/api/.env
-apps/web/.env
+.env.*
+**/.env
+**/.env.*
+.mailserver.env
+
+# Agent/editor/tooling state, not build inputs.
 .claude
 .cursor
+.agents
+.vscode
 mcps
+skills-lock.json
+
+# Not needed to build or run the server.
+test
+deploy
+README.md
+CLAUDE.md
+Dockerfile
+docker-compose.yml
+.dockerignore

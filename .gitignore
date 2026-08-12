@@ -31,4 +31,7 @@ mailcow-dockerized/
 *.tar.gz
 mailserver.docker-compose.yml
 mailserver.env
+# One-off MySQL -> Postgres migration artifacts (delete after cutover is final)
+apps/api/prisma/.mysql-client/
+apps/api/prisma/.mysql-src/
 backups/

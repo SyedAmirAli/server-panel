@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Inbox, Eye, Mail as MailIcon, RefreshCw } from "lucide-react";
+import { Inbox, Eye, Mail as MailIcon, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import type { MailMessageView } from "@appszone/shared";
 import { api } from "@/lib/api";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -52,9 +52,23 @@ function recipientSummary(to: string[]) {
     return `${to[0]} +${to.length - 1}`;
 }
 
+const PAGE_SIZE = 50;
+
 export function MailMessages() {
-    const { data, isLoading, isLoadingMore, hasMore, search, setSearch, loadMore, refresh } =
-        useCursorPaginated(fetcher, { limit: 50 });
+    const {
+        data,
+        total,
+        isLoading,
+        isLoadingMore,
+        search,
+        setSearch,
+        refresh,
+        pageIndex,
+        hasNextPage,
+        hasPrevPage,
+        goToNextPage,
+        goToPrevPage,
+    } = useCursorPaginated(fetcher, { limit: PAGE_SIZE });
     const [viewing, setViewing] = useState<MailMessageView | null>(null);
     const [previewId, setPreviewId] = useState<string | null>(null);
     const [syncing, setSyncing] = useState(false);
@@ -98,22 +112,43 @@ export function MailMessages() {
                 </button>
             </div>
 
-            <ListPageCard
-                footer={
-                    hasMore ? (
-                        <div className="flex justify-center border-t border-gray-100 py-3">
-                            <button
-                                onClick={loadMore}
-                                disabled={isLoadingMore}
-                                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                            >
-                                {isLoadingMore && <Spinner size="sm" />}
-                                Load more
-                            </button>
-                        </div>
-                    ) : undefined
-                }
-            >
+            {data.length > 0 && (
+                <div className="mb-4 flex items-center justify-center gap-4 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm">
+                    <button
+                        type="button"
+                        onClick={goToPrevPage}
+                        disabled={!hasPrevPage || isLoadingMore}
+                        aria-label="Previous page"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                        <ChevronLeft size={16} />
+                    </button>
+
+                    <p className="text-sm text-gray-600">
+                        <strong className="font-semibold text-gray-800">
+                            {(pageIndex * PAGE_SIZE + 1).toLocaleString()}
+                        </strong>
+                        {"–"}
+                        <strong className="font-semibold text-gray-800">
+                            {(pageIndex * PAGE_SIZE + data.length).toLocaleString()}
+                        </strong>{" "}
+                        of <strong className="font-semibold text-gray-800">{(total ?? 0).toLocaleString()}</strong>{" "}
+                        entries
+                    </p>
+
+                    <button
+                        type="button"
+                        onClick={goToNextPage}
+                        disabled={!hasNextPage || isLoadingMore}
+                        aria-label="Next page"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                        {isLoadingMore ? <Spinner size="sm" /> : <ChevronRight size={16} />}
+                    </button>
+                </div>
+            )}
+
+            <ListPageCard>
                 {isLoading ? (
                     <div className="flex items-center justify-center py-16">
                         <Spinner size="lg" />

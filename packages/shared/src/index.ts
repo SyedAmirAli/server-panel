@@ -346,3 +346,9 @@ export interface DashboardStats {
     sentQueued: number;
   };
 }
+
+/* ─── Job Finder / Job Application Assistant ─────────────────── */
+export * from "./job-finder";
+
+// AI Studio — resume builder, cover letters and the data assistant.
+export * from "./ai-studio";

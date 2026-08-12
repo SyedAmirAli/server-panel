@@ -48,7 +48,10 @@ function buildOperatorCondition(operator: any, value: any): any {
             return { notIn: value };
         case "like": {
             const v = typeof value === "string" ? value.replace(/^%+|%+$/g, "") : value;
-            return { contains: v };
+            // SQL LIKE was case-insensitive under MySQL's collation; on Postgres it
+            // is not, so ask Prisma for it explicitly to keep `like` behaving the
+            // way every existing caller expects.
+            return typeof v === "string" ? { contains: v, mode: "insensitive" } : { contains: v };
         }
         default:
             return value;

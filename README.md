@@ -9,65 +9,128 @@ for the full plan and phasing.
 ## Monorepo
 
 ```
-apps/api/        NestJS API + in-app workers (Prisma + MySQL)
+apps/api/        NestJS API + in-app workers (Prisma + PostgreSQL)
 apps/web/        Vite + React + TS static SPA (Tailwind v4, React Router v6)
-packages/shared/ Shared Zod schemas + TypeScript types
-docker-compose.yml  Production app container (external MySQL)
+packages/shared/ Shared TypeScript types + constants
+docker-compose.yml  Production app container (external PostgreSQL)
 ```
 
-## Docker (external database)
+## Docker
 
-The image uses an **external MySQL** database. Pass `DATABASE_URL` at runtime, or set
-`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT`, and `MYSQL_DATABASE` and the
-entrypoint will build the URL for you.
+One image: the API, its in-app workers, and the built SPA, served on `API_PORT`.
+The database is **external** (Postgres running natively on the host).
 
-### Build
+### Configuration
+
+Compose hands the container the repo's single root `.env` — the very same file the
+API and the SPA read when run natively. Nothing is duplicated in
+`docker-compose.yml` and no configuration is baked into the image, so an `.env`
+edit plus a restart is the whole change:
 
 ```bash
-docker build -t appszone-mail-server .
-# or
-yarn docker:build
+yarn docker:up   # docker compose up -d
 ```
 
-### Run — remote database
+Check what the container will actually see:
 
 ```bash
-docker run -d \
-  --name appszone-mail-server \
-  --restart unless-stopped \
-  -p 4010:4010 \
-  -e DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@YOUR_DB_HOST:3306/YOUR_DATABASE" \
-  appszone-mail-server
+docker compose config
 ```
 
-### Run — database on the same host (Linux)
+**Postgres is not containerised** — it runs on the host, and the container reaches
+it through the docker gateway (`extra_hosts: host.docker.internal:host-gateway`).
+Port 4010 is published normally.
 
-Containers cannot reach the host via `localhost`. Use the host gateway:
+That makes `PG_HOST` the one value that genuinely differs per environment: `.env`
+here keeps `127.0.0.1` so native runs (`yarn dev`, the Prisma CLI) work, while the
+`.env` deployed next to the server's compose file sets `host.docker.internal`.
+For that to connect, Postgres on the server must accept the gateway interface —
+`listen_addresses` covering it in `postgresql.conf`, plus a `pg_hba.conf` line for
+the docker subnet (typically `172.16.0.0/12`), and the port closed to the outside
+world at the firewall.
+
+(No Redis: this project's queue is in-app, so there is nothing else to reach.)
+
+### Build and run
+
+The image is named `ghcr.io/syedamirali/server-panel:latest` in `docker-compose.yml`,
+so the build tags it for GitHub Container Registry directly — no separate
+`docker tag` step. The path is lowercase because Docker rejects uppercase in an
+image reference; GHCR resolves it to the same package as `github.com/SyedAmirAli`.
+
+There is **one tag, `latest`**, by design — every build overwrites it and every push
+replaces it in the registry. No version tags to maintain.
 
 ```bash
-docker run -d \
-  --name appszone-mail-server \
-  --restart unless-stopped \
-  --add-host=host.docker.internal:host-gateway \
-  -p 4010:4010 \
-  -e DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@host.docker.internal:3306/YOUR_DATABASE" \
-  appszone-mail-server
+yarn docker:build   # docker compose build (tags ghcr.io/syedamirali/server-panel:latest)
+yarn docker:up      # start detached
+yarn docker:logs    # follow logs
+yarn docker:down    # stop and remove
 ```
 
-URL-encode special characters in passwords (e.g. `@` → `%40`).
-
-### Compose
-
-Set `DATABASE_URL` in your shell or a `.env` file next to `docker-compose.yml`, then:
+Release, from this machine (one-time auth:
+`gh auth refresh -s write:packages,read:packages` then
+`gh auth token | docker login ghcr.io -u SyedAmirAli --password-stdin`):
 
 ```bash
-export DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@YOUR_DB_HOST:3306/YOUR_DATABASE"
-yarn docker:up
+yarn docker:release    # build + push :latest
 ```
 
-Override production secrets (`JWT_SECRET`, `ENCRYPTION_KEY`, `API_KEY_PEPPER`,
-`ADMIN_PASSWORD`) via `-e` or compose `environment:` instead of relying on Dockerfile
-defaults.
+On the server — a plain `up -d` will keep running the old image, because the tag
+name did not change. Pull first:
+
+```bash
+yarn docker:redeploy   # docker compose pull && docker compose up -d
+docker image prune -f  # optional: drop the <none> images the new build orphaned
+```
+
+### Migrations
+
+The container has **no entrypoint script** — it starts the server and nothing
+else, so a restart never touches the schema. Apply migrations deliberately:
+
+```bash
+yarn docker:db:migrate   # prisma migrate deploy inside the container
+yarn docker:db:push      # prisma db push (dev/rescue only)
+```
+
+### CI/CD
+
+`.github/workflows/docker-deploy.yml` builds and pushes `:latest` to GHCR on every
+push to `master` (or via *Run workflow*), then SSHes to the server to pull and
+restart. Migrations are **not** run automatically — same reasoning as the missing
+entrypoint script; uncomment the one line in the deploy step if you want them.
+
+Repository secrets to add (Settings → Secrets and variables → Actions):
+
+| Secret            | Purpose                                        |
+| ----------------- | ---------------------------------------------- |
+| `SSH_HOST`        | server hostname or IP                          |
+| `SSH_USER`        | SSH user, must be in the `docker` group        |
+| `SSH_PRIVATE_KEY` | private key for that user                      |
+| `SSH_PORT`        | optional, defaults to `22`                     |
+
+`GITHUB_TOKEN` is provided automatically and needs no setup.
+
+One-time server preparation — the workflow only pulls and restarts, it never
+writes these:
+
+```
+/srv/projects/server-panel/
+├── docker-compose.yml   # copy of this repo's file
+└── .env                 # copy of .env.example, filled in, PG_HOST=host.docker.internal
+```
+
+Change `DEPLOY_COMPOSE_FILE` at the top of the workflow if you put it elsewhere.
+
+### Notes
+
+- Secrets (`JWT_SECRET`, `ENCRYPTION_KEY`, `API_KEY_PEPPER`, `ADMIN_PASSWORD`,
+  SMTP and R2 credentials) live only in `.env`, never in a layer. Rotate
+  the committed development values before exposing the service publicly.
+- URL-encode special characters in database passwords (e.g. `@` → `%40`).
+- The image ships headless Chromium for the AI Studio PDF renderer; the container
+  runs as the unprivileged `node` user.
 
 ## Local dev quick start
 
@@ -75,12 +138,11 @@ defaults.
 # 1. install (yarn workspaces)
 yarn install
 
-# 2. env
-cp .env.example apps/api/.env
-cp .env.example apps/web/.env   # VITE_API_BASE_URL is the only var web reads
+# 2. env — ONE file at the repo root, shared by api, web and docker
+cp .env.example .env
 
-# 3. database (native MySQL on the host, or any reachable instance)
-#    configure DATABASE_URL in apps/api/.env
+# 3. database (native PostgreSQL on the host, or any reachable instance)
+#    configure PG_* / DATABASE_URL in .env
 
 # 4. build (shared + prisma generate + api + web) — or run dev steps below
 yarn build
@@ -115,7 +177,7 @@ paths (`VITE_API_BASE_URL` empty) and CORS isn't needed for it.
 yarn install
 
 # 2. env (required before build/run)
-cp .env.example apps/api/.env
+cp .env.example .env
 # edit DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, etc.
 
 # 3. build everything (shared → prisma generate → api + web)
@@ -124,7 +186,7 @@ yarn build
 #   @appszone/api      prisma generate + nest build
 #   @appszone/web      tsc + vite build → apps/web/dist
 
-# 4. apply database migrations (needs a running MySQL)
+# 4. apply database migrations (needs a running PostgreSQL)
 yarn migrate:deploy
 
 # 5. start the API (serves /api/v1 + static SPA from apps/web/dist)
@@ -154,21 +216,6 @@ CREATE DATABASE test_toast CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CRE
 ```sql
 CREATE DATABASE mail_appszonemail_shadow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; ALTER USER 'mail_appszonemail'@'localhost' IDENTIFIED BY 'Siyamcse@30'; ALTER USER 'mail_appszonemail'@'%' IDENTIFIED BY 'Siyamcse@30'; GRANT ALL PRIVILEGES ON mail_appszonemail_shadow.* TO 'mail_appszonemail'@'localhost'; GRANT ALL PRIVILEGES ON mail_appszonemail_shadow.* TO 'mail_appszonemail'@'%'; FLUSH PRIVILEGES;
 ```
-
-docker rm -f appszone-mail-server 2>/dev/null || true
-
-docker run --name appszone-mail-server \
- --restart unless-stopped \
- -p 4010:4010 \
- -e DATABASE_URL="mysql://root:12345678@localhost:3306/apz_mailserver" \
- appszone-mail-server
-
-docker run --name appszone-mail-server \
- --restart unless-stopped \
- -p 4010:4010 \
- -e DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail" \
- -e SHADOW_DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail_shadow" \
- appszone-mail-server
 
 ```sql
 CREATE DATABASE IF NOT EXISTS appszone_lms
