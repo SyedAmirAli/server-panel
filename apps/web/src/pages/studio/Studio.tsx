@@ -4,8 +4,6 @@ import { ExternalLink, MessageSquarePlus, Send, Sparkles, User } from "lucide-re
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
-import { peopleApi, type PersonRow } from "@/lib/people";
-import { jobsApi, type PostingRow } from "@/lib/jobs";
 import {
     routeForReference,
     streamConversation,
@@ -37,9 +35,6 @@ export function Studio() {
 
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [conversation, setConversation] = useState<ConversationDetail | null>(null);
-    const [people, setPeople] = useState<PersonRow[]>([]);
-    const [postings, setPostings] = useState<PostingRow[]>([]);
-
     const [question, setQuestion] = useState("");
     const [asking, setAsking] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -58,14 +53,8 @@ export function Studio() {
 
     const loadSidebar = useCallback(async () => {
         try {
-            const [list, p, j] = await Promise.all([
-                studioApi.listConversations(),
-                peopleApi.list({ limit: 100 }),
-                jobsApi.listPostings({ limit: 100 }),
-            ]);
+            const list = await studioApi.listConversations();
             setConversations(list);
-            setPeople(p.data);
-            setPostings(j.data);
             return list;
         } catch (err) {
             toastError(err instanceof Error ? err.message : "Could not load conversations");
@@ -385,9 +374,7 @@ export function Studio() {
                             />
                             <div className="flex gap-2">
                                 <AttachMenu
-                                    people={people}
-                                    postings={postings}
-                                    documents={documents}
+                                    profileId={conversation.profileId}
                                     onAttach={(patch) => void attach(patch)}
                                 />
                                 <input
@@ -414,13 +401,7 @@ export function Studio() {
                 )}
             </div>
 
-            <NewConversationModal
-                isOpen={newOpen}
-                onClose={() => setNewOpen(false)}
-                people={people}
-                postings={postings}
-                onStart={startConversation}
-            />
+            <NewConversationModal isOpen={newOpen} onClose={() => setNewOpen(false)} onStart={startConversation} />
         </div>
     );
 }

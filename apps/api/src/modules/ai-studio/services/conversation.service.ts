@@ -20,7 +20,7 @@ export class ConversationService {
     constructor(private readonly prisma: PrismaService) {}
 
     async list(profileId?: string) {
-        return this.prisma.studioConversation.findMany({
+        const rows = await this.prisma.studioConversation.findMany({
             where: profileId ? { profileId } : {},
             orderBy: { updatedAt: "desc" },
             take: 50,
@@ -30,6 +30,8 @@ export class ConversationService {
                 _count: { select: { messages: true } },
             },
         });
+        // The marker is an internal flag, never something a user should see.
+        return rows.map((r) => ({ ...r, title: cleanTitle(r.title) }));
     }
 
     async getOne(id: string) {
@@ -42,7 +44,7 @@ export class ConversationService {
             },
         });
         if (!conversation) throw new NotFoundException("Conversation not found");
-        return conversation;
+        return { ...conversation, title: cleanTitle(conversation.title) };
     }
 
     async create(params: { profileId?: string | null; postingId?: string | null; title?: string }) {
@@ -108,9 +110,11 @@ export class ConversationService {
                 select: { title: true },
             });
             if (!conversation?.title) {
+                // A provisional title so the row is never blank; replaced by a
+                // proper one once the first exchange is complete.
                 await this.prisma.studioConversation.update({
                     where: { id: params.conversationId },
-                    data: { title: params.content.slice(0, 80) },
+                    data: { title: PROVISIONAL_PREFIX + params.content.slice(0, 70) },
                 });
             }
         }
@@ -132,6 +136,33 @@ export class ConversationService {
             .map((r) => ({ role: r.role as "user" | "assistant", content: r.content as string }));
     }
 
+    /**
+     * Replace a provisional title with a real one.
+     *
+     * Refuses to touch a title the user chose: an assistant that renames your
+     * threads behind you is worse than one that names them badly.
+     */
+    async applyGeneratedTitle(id: string, title: string) {
+        const conversation = await this.prisma.studioConversation.findUnique({
+            where: { id },
+            select: { title: true },
+        });
+        if (conversation?.title && !conversation.title.startsWith(PROVISIONAL_PREFIX)) return null;
+        return this.prisma.studioConversation.update({
+            where: { id },
+            data: { title: title.trim().slice(0, 120) },
+        });
+    }
+
+    /** True while the conversation still carries its provisional title. */
+    async needsTitle(id: string): Promise<boolean> {
+        const conversation = await this.prisma.studioConversation.findUnique({
+            where: { id },
+            select: { title: true },
+        });
+        return !conversation?.title || conversation.title.startsWith(PROVISIONAL_PREFIX);
+    }
+
     /** Rename a conversation. Titles are auto-set from the first question, but a
      *  long-running thread deserves a name its owner chose. */
     async rename(id: string, title: string) {
@@ -147,6 +178,13 @@ export class ConversationService {
         await this.prisma.studioConversation.delete({ where: { id } });
         return { id };
     }
+}
+
+/** Marks a title as auto-generated placeholder text, not a user's choice. */
+const PROVISIONAL_PREFIX = "\u200b";
+
+function cleanTitle(title: string | null): string | null {
+    return title ? title.replace(PROVISIONAL_PREFIX, "") : title;
 }
 
 function modeFor(profileId?: string | null, postingId?: string | null): string {

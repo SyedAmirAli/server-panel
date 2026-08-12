@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Briefcase, FileText, Mail, Plus, Type, User } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
-import type { PersonRow } from "@/lib/people";
-import type { PostingRow } from "@/lib/jobs";
-import type { ResumeDocument } from "@appszone/shared";
+import { peopleApi } from "@/lib/people";
+import { jobsApi } from "@/lib/jobs";
+import { studioApi } from "@/lib/studio";
+import { PaginatedPicker } from "@/components/studio/PaginatedPicker";
 
 export interface Attachments {
     /** Persisted on the conversation — these decide its mode. */
@@ -27,14 +28,11 @@ type Picker = "person" | "job" | "jobText" | "document" | "email" | null;
  * is *for*. Everything else rides along with the next message.
  */
 export function AttachMenu({
-    people,
-    postings,
-    documents,
+    profileId,
     onAttach,
 }: {
-    people: PersonRow[];
-    postings: PostingRow[];
-    documents: ResumeDocument[];
+    /** Whose documents to offer, when a person is attached. */
+    profileId?: string | null;
     onAttach: (patch: Attachments) => void;
 }) {
     const [open, setOpen] = useState(false);
@@ -97,9 +95,21 @@ export function AttachMenu({
             {/* ── pickers ── */}
 
             <Modal isOpen={picker === "person"} onClose={() => setPicker(null)} title="Attach a person">
-                <PickList
-                    empty="No people yet — add one under People."
-                    rows={people.map((p) => ({ id: p.id, primary: p.name, secondary: p.headline ?? p.email ?? "" }))}
+                <PaginatedPicker
+                    emptyLabel="No people yet — add one under People."
+                    searchPlaceholder="Search people…"
+                    fetchPage={async ({ search, offset, limit }) => {
+                        const res = await peopleApi.list({ search: search || undefined, offset, limit });
+                        return {
+                            rows: res.data.map((p) => ({
+                                id: p.id,
+                                primary: p.name,
+                                secondary: p.headline ?? p.email ?? undefined,
+                                meta: `${p._count.projectItems} projects`,
+                            })),
+                            total: res.total,
+                        };
+                    }}
                     onPick={(id) => {
                         onAttach({ profileId: id });
                         setPicker(null);
@@ -108,9 +118,25 @@ export function AttachMenu({
             </Modal>
 
             <Modal isOpen={picker === "job"} onClose={() => setPicker(null)} title="Attach a job">
-                <PickList
-                    empty="No job postings found yet."
-                    rows={postings.map((p) => ({ id: p.id, primary: p.title, secondary: p.company }))}
+                <PaginatedPicker
+                    emptyLabel="No job postings found yet."
+                    searchPlaceholder="Search by title or company…"
+                    fetchPage={async ({ search, offset, limit }) => {
+                        const res = await jobsApi.listPostings({
+                            search: search || undefined,
+                            page: Math.floor(offset / limit) + 1,
+                            limit,
+                        });
+                        return {
+                            rows: res.data.map((p) => ({
+                                id: p.id,
+                                primary: p.title,
+                                secondary: p.company,
+                                meta: p.isRemote ? "remote" : (p.location ?? undefined),
+                            })),
+                            total: res.total,
+                        };
+                    }}
                     onPick={(id) => {
                         onAttach({ postingId: id });
                         setPicker(null);
@@ -119,13 +145,28 @@ export function AttachMenu({
             </Modal>
 
             <Modal isOpen={picker === "document"} onClose={() => setPicker(null)} title="Attach a previous resume">
-                <PickList
-                    empty="Nothing generated yet."
-                    rows={documents.map((d) => ({
-                        id: d.id,
-                        primary: d.title,
-                        secondary: `${d.kind.replace("_", " ")}${d.pageCount ? ` · ${d.pageCount} page(s)` : ""}`,
-                    }))}
+                <PaginatedPicker
+                    emptyLabel={profileId ? "Nothing generated yet." : "Attach a person first."}
+                    searchPlaceholder="Search documents…"
+                    fetchPage={async ({ search, offset, limit }) => {
+                        if (!profileId) return { rows: [], total: 0 };
+                        // This endpoint returns the whole (small) set, so paging and
+                        // filtering happen here rather than adding a query API for
+                        // a list that is rarely more than a handful long.
+                        const all = await studioApi.listDocuments(profileId);
+                        const matched = search
+                            ? all.filter((d) => d.title.toLowerCase().includes(search.toLowerCase()))
+                            : all;
+                        return {
+                            rows: matched.slice(offset, offset + limit).map((d) => ({
+                                id: d.id,
+                                primary: d.title,
+                                secondary: d.kind.replace("_", " "),
+                                meta: d.pageCount ? `${d.pageCount}p` : undefined,
+                            })),
+                            total: matched.length,
+                        };
+                    }}
                     onPick={(id) => {
                         onAttach({ documentId: id });
                         setPicker(null);
@@ -192,51 +233,6 @@ export function AttachMenu({
                     </div>
                 </div>
             </Modal>
-        </div>
-    );
-}
-
-function PickList({
-    rows,
-    onPick,
-    empty,
-}: {
-    rows: Array<{ id: string; primary: string; secondary: string }>;
-    onPick: (id: string) => void;
-    empty: string;
-}) {
-    const [filter, setFilter] = useState("");
-    const shown = rows.filter(
-        (r) =>
-            !filter ||
-            r.primary.toLowerCase().includes(filter.toLowerCase()) ||
-            r.secondary.toLowerCase().includes(filter.toLowerCase())
-    );
-
-    return (
-        <div className="space-y-2">
-            {rows.length > 6 && (
-                <input
-                    autoFocus
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Filter…"
-                    className={field}
-                />
-            )}
-            <div className="max-h-80 overflow-y-auto">
-                {shown.length === 0 && <p className="py-6 text-center text-sm text-gray-400">{empty}</p>}
-                {shown.map((r) => (
-                    <button
-                        key={r.id}
-                        onClick={() => onPick(r.id)}
-                        className="flex w-full flex-col items-start rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
-                    >
-                        <span className="text-sm text-gray-800">{r.primary}</span>
-                        {r.secondary && <span className="text-xs text-gray-400">{r.secondary}</span>}
-                    </button>
-                ))}
-            </div>
         </div>
     );
 }

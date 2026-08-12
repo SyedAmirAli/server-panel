@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Briefcase, Sparkles, User, X } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
-import type { PersonRow } from "@/lib/people";
-import type { PostingRow } from "@/lib/jobs";
+import { peopleApi } from "@/lib/people";
+import { jobsApi } from "@/lib/jobs";
+import { PaginatedPicker } from "@/components/studio/PaginatedPicker";
 
 /**
  * Starting a conversation is where its purpose is decided.
@@ -15,18 +16,18 @@ import type { PostingRow } from "@/lib/jobs";
 export function NewConversationModal({
     isOpen,
     onClose,
-    people,
-    postings,
     onStart,
 }: {
     isOpen: boolean;
     onClose: () => void;
-    people: PersonRow[];
-    postings: PostingRow[];
     onStart: (profileId: string | null, postingId: string | null) => void;
 }) {
-    const [profileId, setProfileId] = useState("");
-    const [postingId, setPostingId] = useState("");
+    const [person, setPerson] = useState<{ id: string; label: string } | null>(null);
+    const [job, setJob] = useState<{ id: string; label: string } | null>(null);
+    const [picking, setPicking] = useState<"person" | "job" | null>(null);
+
+    const profileId = person?.id ?? "";
+    const postingId = job?.id ?? "";
 
     const mode = profileId && postingId ? "tailoring" : profileId ? "candidate" : "general";
     const explanation =
@@ -39,45 +40,27 @@ export function NewConversationModal({
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="New conversation">
             <div className="space-y-3">
-                <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-gray-600">Person</span>
-                    <select className={select} value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-                        <option value="">None — general questions</option>
-                        {people.map((p) => (
-                            <option key={p.id} value={p.id}>
-                                {p.name}
-                                {p.headline ? ` — ${p.headline}` : ""}
-                            </option>
-                        ))}
-                    </select>
-                    {people.length === 0 && (
-                        <span className="mt-1 block text-[11px] text-amber-700">
-                            No people yet — add one under People to build resumes.
-                        </span>
-                    )}
-                </label>
+                <Slot
+                    label="Person"
+                    icon={User}
+                    value={person?.label}
+                    placeholder="None — general questions"
+                    onPick={() => setPicking("person")}
+                    onClear={() => {
+                        setPerson(null);
+                        setJob(null);
+                    }}
+                />
 
-                <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-gray-600">Job</span>
-                    <select
-                        className={select}
-                        value={postingId}
-                        onChange={(e) => setPostingId(e.target.value)}
-                        disabled={!profileId}
-                    >
-                        <option value="">None — or paste a description in the chat</option>
-                        {postings.map((p) => (
-                            <option key={p.id} value={p.id}>
-                                {p.title} — {p.company}
-                            </option>
-                        ))}
-                    </select>
-                    {!profileId && (
-                        <span className="mt-1 block text-[11px] text-gray-400">
-                            Pick a person first — a job on its own has nobody to tailor for.
-                        </span>
-                    )}
-                </label>
+                <Slot
+                    label="Job"
+                    icon={Briefcase}
+                    value={job?.label}
+                    placeholder={person ? "None — or paste a description in the chat" : "Pick a person first"}
+                    disabled={!person}
+                    onPick={() => setPicking("job")}
+                    onClear={() => setJob(null)}
+                />
 
                 <div className="rounded-lg bg-gray-50 p-2.5">
                     <p className="flex items-start gap-1.5 text-xs text-gray-600">
@@ -100,9 +83,103 @@ export function NewConversationModal({
                     </button>
                 </div>
             </div>
+
+            <Modal isOpen={picking === "person"} onClose={() => setPicking(null)} title="Choose a person">
+                <PaginatedPicker
+                    emptyLabel="No people yet — add one under People."
+                    searchPlaceholder="Search people…"
+                    fetchPage={async ({ search, offset, limit }) => {
+                        const res = await peopleApi.list({ search: search || undefined, offset, limit });
+                        return {
+                            rows: res.data.map((p) => ({
+                                id: p.id,
+                                primary: p.name,
+                                secondary: p.headline ?? p.email ?? undefined,
+                                meta: `${p._count.projectItems} projects`,
+                            })),
+                            total: res.total,
+                        };
+                    }}
+                    onPick={(id, row) => {
+                        setPerson({ id, label: row.primary });
+                        setPicking(null);
+                    }}
+                />
+            </Modal>
+
+            <Modal isOpen={picking === "job"} onClose={() => setPicking(null)} title="Choose a job">
+                <PaginatedPicker
+                    emptyLabel="No job postings found yet."
+                    searchPlaceholder="Search by title or company…"
+                    fetchPage={async ({ search, offset, limit }) => {
+                        const res = await jobsApi.listPostings({
+                            search: search || undefined,
+                            page: Math.floor(offset / limit) + 1,
+                            limit,
+                        });
+                        return {
+                            rows: res.data.map((p) => ({
+                                id: p.id,
+                                primary: p.title,
+                                secondary: p.company,
+                                meta: p.isRemote ? "remote" : (p.location ?? undefined),
+                            })),
+                            total: res.total,
+                        };
+                    }}
+                    onPick={(id, row) => {
+                        setJob({ id, label: `${row.primary} — ${row.secondary ?? ""}`.trim() });
+                        setPicking(null);
+                    }}
+                />
+            </Modal>
         </Modal>
     );
 }
 
-const select =
-    "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-400";
+/** One chooser row: what is selected, or an invitation to choose. */
+function Slot({
+    label,
+    icon: Icon,
+    value,
+    placeholder,
+    disabled,
+    onPick,
+    onClear,
+}: {
+    label: string;
+    icon: typeof User;
+    value?: string;
+    placeholder: string;
+    disabled?: boolean;
+    onPick: () => void;
+    onClear: () => void;
+}) {
+    return (
+        <div>
+            <span className="mb-1 block text-xs font-medium text-gray-600">{label}</span>
+            <div className="flex items-center gap-1.5">
+                <button
+                    type="button"
+                    onClick={onPick}
+                    disabled={disabled}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                        disabled
+                            ? "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400"
+                            : value
+                              ? "border-indigo-300 bg-indigo-50/50 text-gray-800"
+                              : "border-gray-300 text-gray-400 hover:border-indigo-400"
+                    }`}
+                >
+                    <Icon size={14} className="shrink-0 text-gray-400" />
+                    <span className="truncate">{value ?? placeholder}</span>
+                </button>
+                {value && (
+                    <button type="button" onClick={onClear} className="text-gray-400 hover:text-red-600" aria-label={`Clear ${label}`}>
+                        <X size={14} />
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+}

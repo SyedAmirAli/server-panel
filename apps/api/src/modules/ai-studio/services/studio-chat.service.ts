@@ -52,6 +52,45 @@ export class StudioChatService {
     ) {}
 
     /**
+     * Give a conversation a real name, once, from its opening exchange.
+     *
+     * A truncated first message makes a list of threads that all begin "how
+     * many..." — the point of a title is to tell them apart at a glance.
+     */
+    private async titleConversation(conversationId: string, question: string, answer: string) {
+        if (!(await this.conversations.needsTitle(conversationId))) return;
+        if (!this.llm.isConfigured()) return;
+
+        const { text } = await this.llm.complete(
+            [
+                {
+                    role: "system",
+                    content:
+                        "Write a short title for this conversation: 3 to 6 words, no quotes, no trailing punctuation, " +
+                        "Sentence case. Name the specific subject — a company, a person, a document, a metric — rather " +
+                        "than the shape of the request. Reply with the title alone and nothing else.",
+                },
+                { role: "user", content: `Question: ${question}\n\nAnswer: ${answer.slice(0, 800)}` },
+            ],
+            { temperature: 0.2, maxTokens: 40 }
+        );
+
+        const title = text
+            .trim()
+            .split("\n")[0]
+            .replace(/^["'`]|["'`.]+$/g, "")
+            .trim();
+
+        // A model that ignores the brief and returns a paragraph is worse than
+        // the provisional title, so only accept something title-shaped.
+        if (title && title.length <= 80 && title.split(/\s+/).length <= 10) {
+            await this.conversations.applyGeneratedTitle(conversationId, title);
+        } else {
+            this.logger.warn(`Rejected generated title (${title.length} chars): ${title.slice(0, 120)}`);
+        }
+    }
+
+    /**
      * The one action the assistant may take.
      *
      * Dispatched here rather than in the tool layer because it needs the
@@ -325,6 +364,14 @@ export class StudioChatService {
                         model: result.model,
                     });
                     stream.next({ type: "done", messageId: stored.id });
+                    // Name the thread from what actually happened, not from a
+                    // truncated first line. Failure here must never affect the
+                    // answer the user just received.
+                    void this.titleConversation(conversationId, question, answer).catch((err) =>
+                        // Never affects the answer, but a silent failure leaves a
+                        // list of untitled threads with no clue why.
+                        this.logger.warn(`Could not title conversation: ${(err as Error).message}`)
+                    );
                     return { answer, references };
                 }
 
