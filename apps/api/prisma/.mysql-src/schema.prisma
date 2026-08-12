@@ -1,0 +1,721 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../.mysql-client"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("MYSQL_DATABASE_URL")
+  // Dedicated shadow DB so the app user needs no global create-database grant.
+  
+}
+
+model ApiKey {
+  id          String        @id @default(cuid())
+  name        String
+  // HMAC-SHA256(secret, API_KEY_PEPPER) — indexed for O(1) lookup on /v1/send.
+  keyHash     String        @unique
+  keyPrefix   String
+  keySecret   String?       @db.Text // AES-256-GCM encrypted full key (admin retrieval)
+  isActive    Boolean       @default(true)
+  allowedFrom Json // string[] of allowed "from" addresses (MySQL has no scalar list type)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  lastUsedAt  DateTime?
+  messages    SentMessage[]
+
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+model Mailbox {
+  id            String        @id @default(cuid())
+  address       String        @unique
+  displayName   String?
+  imapHost      String
+  imapPort      Int           @default(993)
+  imapSecure    Boolean       @default(true)
+  imapUser      String
+  imapPassword  String        @db.Text // AES-256-GCM encrypted at rest
+  smtpHost      String
+  smtpPort      Int           @default(587)
+  smtpSecure    Boolean       @default(false)
+  smtpUser      String
+  smtpPassword  String        @db.Text // AES-256-GCM encrypted at rest
+  isActive      Boolean       @default(true)
+  lastSyncUid   Int?
+  lastSyncAt    DateTime?
+  lastSyncError String?       @db.Text
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  messages      MailMessage[]
+
+  @@index([isActive])
+  @@map("mailboxes")
+}
+
+model MailMessage {
+  id         String   @id @default(cuid())
+  uid        Int?
+
+  mailboxId  String
+  mailbox    Mailbox  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+
+  messageId  String   @db.VarChar(255) // RFC822 Message-ID header
+
+  from        String
+  to          Json // string[] of recipients (MySQL has no scalar list type)
+  cc          Json? // string[]
+  bcc         Json? // string[]
+  subject     String   @db.Text
+  snippet     String   @db.Text
+  body        String   @db.LongText
+  html        String?  @db.LongText
+  flags       Json? // string[] of IMAP flags (\Seen, \Answered, \Flagged, ...)
+  attachments Json? // [{ filename, contentType, size }] metadata only, no blob storage
+  receivedAt DateTime
+  isRead     Boolean  @default(false)
+  syncedAt   DateTime @default(now())
+
+  @@unique([mailboxId, messageId])
+  @@index([mailboxId, receivedAt])
+  @@index([receivedAt, id]) // keyset pagination across all mailboxes: ORDER BY receivedAt desc, id desc
+  @@map("mail_messages")
+}
+
+model SentMessage {
+  id        String   @id @default(cuid())
+  apiKeyId  String?
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id])
+  from      String
+  to        Json // string[] of recipients (MySQL has no scalar list type)
+  cc        Json? // string[] of CC recipients
+  bcc       Json? // string[] of BCC recipients
+  subject   String   @db.Text
+  status    String   @default("queued") // queued | sent | failed
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("sent_messages")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   @db.VarChar(120) // e.g. admin.login, apikey.create, mail.send
+  actorType  String   @db.VarChar(32) @default("system") // admin | apikey | system
+  actorId    String? // admin, or ApiKey id
+  entityType String?  @db.VarChar(64) // ApiKey | SentMessage | Mailbox
+  entityId   String?
+  metadata   Json? // arbitrary context (sanitized — never secrets)
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.Text
+  createdAt  DateTime @default(now())
+  message    String?  @db.Text
+
+  @@index([action])
+  @@index([actorType, actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model EmailConfig {
+  id         String   @id @default(cuid())
+  name       String @db.VarChar(255)
+  host       String @db.VarChar(255)
+  port       Int @default(587)
+  username   String @db.VarChar(255)
+  password   String @db.VarChar(255)
+  tls        Json? // { rejectUnauthorized: boolean }
+  
+  requireTLS Boolean @default(false)
+  secure     Boolean @default(false)
+  isActive     Boolean @default(true)
+
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([name])
+  @@index([host, port])
+  
+  @@index([username])
+  @@unique([username])
+
+  @@index([createdAt])
+
+  @@map("email_configs")
+}
+
+model Bucket {
+  id             String          @id @default(cuid())
+  // 12-char public identifier (UPPER + digits), sent by API clients as `bucketId`.
+  publicId       String          @unique @db.VarChar(12)
+  name           String
+  provider       String          @default("s3") // s3 | r2 | minio | other
+  endpoint       String? // custom S3 endpoint (R2/MinIO); null = AWS
+  region         String? // e.g. us-east-1 / auto
+  bucketName     String // the real S3 bucket name at the provider
+  forcePathStyle Boolean         @default(true)
+  accessKeyEnc   String          @db.Text // AES-256-GCM encrypted access key id
+  secretKeyEnc   String          @db.Text // AES-256-GCM encrypted secret access key
+  publicBaseUrl  String? // CDN/custom domain for public objects (no trailing slash)
+  isActive       Boolean         @default(true)
+  lockedPrefixes Json            @default("[]") // string[] of locked folder prefixes (no leading/trailing slash); delete-protected
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  objects        StorageObject[]
+
+  @@index([isActive])
+  @@map("buckets")
+}
+
+model StorageApiKey {
+  id             String   @id @default(cuid())
+  name           String
+  // HMAC-SHA256(secret, API_KEY_PEPPER) — indexed for O(1) lookup on /storage/*.
+  keyHash        String   @unique
+  keyPrefix      String
+  keySecret      String?  @db.Text // AES-256-GCM encrypted full key (admin retrieval)
+  isActive       Boolean  @default(true)
+  allowedBuckets Json // string[] of bucket publicIds (empty = all buckets)
+  defaultBucketId String? // bucket publicId used when a request omits bucketId
+  allowedOrigins Json // string[] of allowed request origins/domains (empty = all)
+  allowedIps     Json // string[] of allowed client IPs/CIDRs (empty = all)
+  expiresAt      DateTime? // null = never expires
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastUsedAt     DateTime?
+
+  @@index([isActive])
+  @@map("storage_api_keys")
+}
+
+model StorageObject {
+  id            String   @id @default(cuid())
+  bucketId      String
+  bucket        Bucket   @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  key           String   @db.VarChar(512) // full object key incl. prefix (indexed → MySQL 3072-byte limit)
+  prefix        String?  @db.VarChar(255) // folder path (no leading/trailing slash)
+  originalName  String   @db.VarChar(512)
+  size          Int
+  contentType   String   @db.VarChar(255)
+  etag          String?  @db.VarChar(255)
+  isPrivate     Boolean  @default(true)
+  convertedWebp Boolean  @default(false)
+  compressed    Boolean  @default(false)
+  quality       Int?
+  uploadedByType String  @default("apikey") // admin | apikey
+  uploadedById  String?
+  metadata      Json? // arbitrary sanitized metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([bucketId, key])
+  @@index([bucketId, prefix])
+  @@index([createdAt])
+  @@map("storage_objects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job Finder / Job Application Assistant
+//
+// Fully additive module. Nothing above this line is modified by it. The link to
+// SentMessage (JobApplication.sentMessageId) is deliberately a loose string
+// rather than a relation, so the existing SentMessage model stays untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Normalized, source-of-truth candidate representation. Imported *from* the
+/// resume repo (which is never written to) and then used for matching and
+/// application generation.
+model CandidateProfile {
+  id           String  @id @default(cuid())
+  name         String  @db.VarChar(191)
+  headline     String? @db.Text
+  email        String? @db.VarChar(191)
+  phone        String? @db.VarChar(64)
+  location     String? @db.VarChar(191)
+  timezone     String? @db.VarChar(64)
+  availability String? @db.Text
+  summary      String? @db.Text
+
+  // MySQL has no scalar list type — normalized collections are stored as Json.
+  titles         Json // string[]
+  skills         Json // [{ name, category?, highlighted? }]
+  experience     Json // [{ company, position, period, location?, points[], stack[]? }]
+  education      Json // [{ institution, degree, period, location? }]
+  projects       Json // [{ name, description, stack[], metrics[]? }]
+  certifications Json?
+  languages      Json?
+  links          Json? // [{ label, url }] — kept for reference; never emitted into emails
+
+  // Provenance of the import, so a re-import can detect drift without guessing.
+  sourceType String  @default("repo") @db.VarChar(32) // repo | pdf | paste
+  sourcePath String? @db.Text
+  sourceHash String? @db.VarChar(128) // sha256 of the raw source at import time
+  rawSource  String? @db.LongText
+
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches      JobMatch[]
+  applications JobApplication[]
+
+  // AI Studio — relational detail. The Json columns above are derived from these.
+  projectItems    ProfileProject[]
+  experienceItems ProfileExperience[]
+  skillItems      ProfileSkill[]
+  linkItems       ProfileLink[]
+  infoItems       ProfileInfoItem[]
+  factProposals   ProfileFactProposal[]
+  documents       ResumeDocument[]
+
+  @@index([isDefault])
+  @@map("candidate_profiles")
+}
+
+/// A pluggable discovery adapter (free board API, grounded web search, URL
+/// import, LinkedIn alert-email parser, Adzuna…). Rows are seeded on boot;
+/// `isActive` and `config` are admin-editable.
+model JobSource {
+  id      String @id @default(cuid())
+  key     String @unique @db.VarChar(64) // remotive | remoteok | arbeitnow | jobicy | websearch | url-import | linkedin-email | adzuna
+  name    String @db.VarChar(120)
+  adapter String @db.VarChar(64)
+
+  isActive Boolean @default(true)
+  config   Json? // adapter-specific: queries[], locations[], remoteOnly, mailboxId, model…
+
+  /// Adapters needing keys (Adzuna) ship disabled until the env vars are present.
+  requiresCredentials Boolean @default(false)
+  credentialsReady    Boolean @default(true)
+
+  lastRunAt     DateTime?
+  lastRunStatus String?   @db.VarChar(32)
+  lastRunError  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postings JobPosting[]
+
+  @@index([isActive])
+  @@map("job_sources")
+}
+
+/// A single normalized job posting, deduplicated across every source.
+model JobPosting {
+  id         String     @id @default(cuid())
+  sourceId   String?
+  source     JobSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  externalId String?    @db.VarChar(191) // provider's own id, when it has one
+
+  /// sha256(normalized company | title | canonical url) — the cross-source dedupe key.
+  dedupeHash String @unique @db.VarChar(64)
+
+  title          String  @db.VarChar(255)
+  company        String  @db.VarChar(191)
+  companyUrl     String? @db.Text
+  location       String? @db.VarChar(191)
+  isRemote       Boolean @default(false)
+  employmentType String? @db.VarChar(64)
+
+  salaryRaw String? @db.VarChar(191)
+  salaryMin Int?
+  salaryMax Int?
+  currency  String? @db.VarChar(8)
+
+  url          String  @db.Text
+  applyUrl     String? @db.Text
+  applyEmail   String? @db.VarChar(191)
+  description  String? @db.LongText
+  tags         Json?
+  requirements Json?
+
+  postedAt     DateTime? // provider-reported publish time; drives the 24h window
+  discoveredAt DateTime  @default(now())
+  expiresAt    DateTime?
+
+  /// new | scored | shortlisted | applied | dismissed | archived
+  status String @default("new") @db.VarChar(32)
+
+  raw Json? // untouched provider payload, for debugging adapters
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches      JobMatch[]
+  applications JobApplication[]
+  documents    ResumeDocument[]
+
+  @@index([postedAt])
+  @@index([status])
+  @@index([sourceId])
+  @@index([discoveredAt])
+  @@map("job_postings")
+}
+
+/// LLM-produced fit assessment of one posting against one candidate profile.
+model JobMatch {
+  id        String           @id @default(cuid())
+  postingId String
+  posting   JobPosting       @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  stars   Int // 1–5, what the list UI renders
+  score   Int // 0–100, the finer-grained ordering key behind the stars
+  verdict String? @db.VarChar(64) // strong | good | stretch | weak
+  summary String? @db.Text
+
+  strengths     Json? // string[] — evidence drawn only from the profile
+  gaps          Json? // string[] — JD requirements the profile does not show
+  matchedSkills Json?
+  missingSkills Json?
+
+  model    String?  @db.VarChar(120)
+  scoredAt DateTime @default(now())
+
+  @@unique([postingId, profileId])
+  @@index([stars])
+  @@map("job_matches")
+}
+
+/// A generated application (email draft by default), following the rules in the
+/// resume repo's skills/job-application.md.
+model JobApplication {
+  id        String           @id @default(cuid())
+  postingId String
+  posting   JobPosting       @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// draft | ready | sent | replied | rejected
+  status  String @default("draft") @db.VarChar(32)
+  channel String @default("email") @db.VarChar(32) // email | url
+
+  toEmail  String? @db.VarChar(191)
+  subject  String? @db.Text
+  body     String? @db.LongText
+  /// Gaps are reported to the candidate, never written into the email body.
+  gapsNote String? @db.Text
+
+  model String? @db.VarChar(120)
+
+  /// Loose reference to SentMessage.id — intentionally not a relation, so the
+  /// existing SentMessage model needs no back-reference.
+  sentMessageId String?
+  sentAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents ResumeDocument[]
+
+  @@index([status])
+  @@index([postingId])
+  @@map("job_applications")
+}
+
+/// One execution of the discovery pipeline — cron or "Find Now".
+model JobRun {
+  id      String @id @default(cuid())
+  trigger String @db.VarChar(32) // manual | cron
+  /// running | success | partial | failed | cancelled
+  status  String @default("running") @db.VarChar(32)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  sourcesRun Json? // string[] of JobSource.key actually executed
+  stats      Json? // { discovered, deduped, inserted, scored, errors }
+  error      String? @db.Text
+
+  logs JobRunLog[]
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("job_runs")
+}
+
+/// Append-only log line for a run — this is what the terminal view streams.
+model JobRunLog {
+  id    String @id @default(cuid())
+  runId String
+  run   JobRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  seq     Int // monotonic within a run, so the terminal can order/resume
+  level   String  @default("info") @db.VarChar(16) // debug | info | warn | error | success
+  source  String? @db.VarChar(64) // JobSource.key, when attributable
+  message String  @db.Text
+  data    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([runId, seq])
+  @@map("job_run_logs")
+}
+
+/// Single-row settings for the module (schedule, thresholds, model choices).
+model JobFinderSetting {
+  id String @id @default("default")
+
+  cronEnabled    Boolean @default(false)
+  cronExpression String  @default("0 */6 * * *") @db.VarChar(64)
+
+  lookbackHours Int @default(24) // the "posted in the last 24h" window
+  minStars      Int @default(3) // below this, postings are kept but not surfaced by default
+  maxJobsPerRun Int @default(60)
+
+  scoringModel String @default("auto/best-fast") @db.VarChar(120)
+  writingModel String @default("auto/best-coding") @db.VarChar(120)
+  /// Used by the URL importer to normalize a fetched job page into a posting.
+  extractionModel String @default("auto/best-fast") @db.VarChar(120)
+
+  keywords         Json? // string[] — role queries fanned out to search adapters
+  locations        Json? // string[]
+  excludeCompanies Json? // string[]
+
+  activeProfileId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("job_finder_settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — relational candidate detail
+// The JSON columns on CandidateProfile above stay as a derived cache so Job
+// Finder scoring keeps working unchanged; these rows are the source of truth
+// and the only thing that supports per-item editing and per-resume selection.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ProfileProject {
+  id        String @id @default(cuid())
+  profileId String
+
+  name        String  @db.VarChar(191)
+  description String? @db.Text
+  role        String? @db.VarChar(191)
+  period      String? @db.VarChar(120)
+
+  /// string[] — tech tags. The ranking key for tailoring, so this is where a
+  /// Laravel role and a Next.js role part ways. Required in the DTO.
+  stack   Json
+  metrics Json? // [[label, value], …]
+  note    String? @db.Text // attribution as written (solo vs team)
+  url     String? @db.Text
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_projects")
+}
+
+model ProfileExperience {
+  id        String @id @default(cuid())
+  profileId String
+
+  company        String  @db.VarChar(191)
+  position       String  @db.VarChar(191)
+  /// Verbatim from the CV — never recomputed into a new duration.
+  period         String  @db.VarChar(120)
+  location       String? @db.VarChar(191)
+  /// Employment nature as stated (full-time, part-time, internship…). Part-time
+  /// stays part-time in every generated document.
+  employmentType String? @db.VarChar(64)
+
+  points Json // string[]
+  stack  Json? // string[]
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_experiences")
+}
+
+model ProfileSkill {
+  id        String @id @default(cuid())
+  profileId String
+
+  name        String  @db.VarChar(120)
+  category    String? @db.VarChar(64) // language | framework | database | tooling | cloud
+  level       String? @db.VarChar(32)
+  highlighted Boolean @default(false)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, name])
+  @@index([profileId, sortOrder])
+  @@map("profile_skills")
+}
+
+model ProfileLink {
+  id        String @id @default(cuid())
+  profileId String
+
+  label String @db.VarChar(120)
+  url   String @db.Text
+  /// linkedin | github | portfolio | other — lets the ATS header pick the ones
+  /// worth printing without string-matching the URL.
+  kind  String @default("other") @db.VarChar(32)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("profile_links")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — supporting information and the fact review queue
+// Attachments are ingested, extracted, then *proposed*. Nothing merges into the
+// profile without review: one bad OCR pass would otherwise quietly poison every
+// resume generated afterwards, and nobody rereads the profile before Execute.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ProfileInfoItem {
+  id        String @id @default(cuid())
+  profileId String
+
+  /// pdf | image | textfile | note — "note" is typed straight in and skips
+  /// extraction entirely; it is already text.
+  kind  String  @db.VarChar(32)
+  title String? @db.VarChar(191)
+
+  /// Extracted (or typed) text. Kept verbatim and never discarded, so any fact
+  /// derived from it can be traced back to its source.
+  rawText String? @db.LongText
+
+  // Object location, stored in parts rather than one concatenated key so files
+  // can be moved or re-derived without string surgery.
+  bucketId   String?
+  folder     String? @db.VarChar(512)
+  fileName   String? @db.VarChar(512)
+  storageKey String? @db.VarChar(768)
+  mimeType   String? @db.VarChar(191)
+  sizeBytes  Int?
+
+  /// pending | done | failed | skipped — a failed extraction never blocks the
+  /// upload, it just leaves the item retryable.
+  extractionStatus String  @default("pending") @db.VarChar(32)
+  extractionError  String? @db.Text
+  model            String? @db.VarChar(120)
+  extractedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile   CandidateProfile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  proposals ProfileFactProposal[]
+
+  @@index([profileId, createdAt])
+  @@index([extractionStatus])
+  @@map("profile_info_items")
+}
+
+model ProfileFactProposal {
+  id         String  @id @default(cuid())
+  profileId  String
+  infoItemId String?
+
+  /// project | experience | skill | link | field — what accepting this would write.
+  targetType String @db.VarChar(32)
+  /// The candidate row itself, shaped for targetType.
+  payload    Json
+  /// Model's own confidence, used only to order the review queue.
+  confidence Int?    @default(0)
+
+  /// pending | accepted | rejected
+  status     String    @default("pending") @db.VarChar(32)
+  reviewedAt DateTime?
+  /// Set when accepting created a row, so a mistaken accept can be traced back.
+  createdRowId String? @db.VarChar(64)
+
+  model     String?  @db.VarChar(120)
+  createdAt DateTime @default(now())
+
+  profile  CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  infoItem ProfileInfoItem? @relation(fields: [infoItemId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, status])
+  @@index([infoItemId])
+  @@map("profile_fact_proposals")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Studio — generated documents
+// A document snapshots its own content. It deliberately does NOT read through
+// to live profile rows: once a PDF has gone to an employer, editing a project
+// description next month must not make our records disagree with their copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ResumeDocument {
+  id            String  @id @default(cuid())
+  profileId     String
+  postingId     String?
+  applicationId String?
+
+  /// resume | cover_letter
+  kind   String @db.VarChar(32)
+  /// pdf | text — cover letters are rendered to PDF *and* kept as text, because
+  /// the text is the email body and the PDF is the attachment.
+  format String @default("pdf") @db.VarChar(16)
+  title  String @db.VarChar(255)
+
+  /// The immutable resolved content this document was rendered from.
+  contentJson Json
+  /// Numbered content blocks. Numbers are display for stable block IDs, not
+  /// wrapped visual lines — visual numbering renumbers on every edit, so a later
+  /// "also fix line 24" would land on the wrong content.
+  blocks      Json?
+
+  // Object location, stored in parts (see ProfileInfoItem). bucketId is a loose
+  // reference, not a relation, so the pre-existing Bucket model needs no
+  // back-reference.
+  bucketId   String?
+  folder     String? @db.VarChar(512)
+  fileName   String? @db.VarChar(512)
+  storageKey String? @db.VarChar(768)
+  sizeBytes  Int?
+  pageCount  Int?
+
+  /// Populated when the fabrication guard flagged unsupported claims.
+  warnings Json?
+  model    String? @db.VarChar(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile     CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  posting     JobPosting?      @relation(fields: [postingId], references: [id], onDelete: SetNull)
+  application JobApplication?  @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, createdAt])
+  @@index([postingId])
+  @@index([applicationId])
+  @@map("resume_documents")
+}

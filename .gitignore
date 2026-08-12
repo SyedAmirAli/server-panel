@@ -31,3 +31,4 @@ mailcow-dockerized/
 *.tar.gz
 mailserver.docker-compose.yml
 mailserver.env
+backups/
