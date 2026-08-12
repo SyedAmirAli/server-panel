@@ -37,11 +37,19 @@ Check what the container will actually see:
 docker compose config
 ```
 
-The service uses `network_mode: host`, so `127.0.0.1` means the same thing inside
-the container as outside and the one `.env` works unchanged for native and
-containerised runs. The API binds `API_HOST:API_PORT` directly on the host — with
-host networking there are no published ports to map. To run on a bridge network
-instead, see the commented alternative in `docker-compose.yml`.
+**Postgres is not containerised** — it runs on the host, and the container reaches
+it through the docker gateway (`extra_hosts: host.docker.internal:host-gateway`).
+Port 4010 is published normally.
+
+That makes `PG_HOST` the one value that genuinely differs per environment: `.env`
+here keeps `127.0.0.1` so native runs (`yarn dev`, the Prisma CLI) work, while the
+`.env` deployed next to the server's compose file sets `host.docker.internal`.
+For that to connect, Postgres on the server must accept the gateway interface —
+`listen_addresses` covering it in `postgresql.conf`, plus a `pg_hba.conf` line for
+the docker subnet (typically `172.16.0.0/12`), and the port closed to the outside
+world at the firewall.
+
+(No Redis: this project's queue is in-app, so there is nothing else to reach.)
 
 ### Build and run
 
@@ -85,6 +93,35 @@ else, so a restart never touches the schema. Apply migrations deliberately:
 yarn docker:db:migrate   # prisma migrate deploy inside the container
 yarn docker:db:push      # prisma db push (dev/rescue only)
 ```
+
+### CI/CD
+
+`.github/workflows/docker-deploy.yml` builds and pushes `:latest` to GHCR on every
+push to `master` (or via *Run workflow*), then SSHes to the server to pull and
+restart. Migrations are **not** run automatically — same reasoning as the missing
+entrypoint script; uncomment the one line in the deploy step if you want them.
+
+Repository secrets to add (Settings → Secrets and variables → Actions):
+
+| Secret            | Purpose                                        |
+| ----------------- | ---------------------------------------------- |
+| `SSH_HOST`        | server hostname or IP                          |
+| `SSH_USER`        | SSH user, must be in the `docker` group        |
+| `SSH_PRIVATE_KEY` | private key for that user                      |
+| `SSH_PORT`        | optional, defaults to `22`                     |
+
+`GITHUB_TOKEN` is provided automatically and needs no setup.
+
+One-time server preparation — the workflow only pulls and restarts, it never
+writes these:
+
+```
+/srv/projects/server-panel/
+├── docker-compose.yml   # copy of this repo's file
+└── .env                 # copy of .env.example, filled in, PG_HOST=host.docker.internal
+```
+
+Change `DEPLOY_COMPOSE_FILE` at the top of the workflow if you put it elsewhere.
 
 ### Notes
 

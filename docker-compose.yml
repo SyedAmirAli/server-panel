@@ -26,18 +26,19 @@ services:
             - path: .env
               required: true
 
-        # Postgres runs natively on this host and .env points at 127.0.0.1.
-        # Sharing the host network namespace makes that address mean the same
-        # thing inside the container as outside, which is what lets one file
-        # serve both native and containerised runs. The API binds
-        # API_HOST:API_PORT directly on the host — `ports:` does not apply here.
-        #
-        # For a bridge network instead (isolated, published ports), swap the line
-        # below for:
-        #     ports: ["4010:4010"]
-        #     extra_hosts: ["host.docker.internal:host-gateway"]
-        # and point PG_HOST in .env at host.docker.internal.
-        network_mode: host
+        # Bound to loopback on purpose: nginx is the front door in production, and
+        # docker's published ports bypass ufw — "4010:4010" would expose the API
+        # to the internet regardless of the firewall. Browse http://localhost:4010.
+        ports:
+            - "127.0.0.1:4010:4010"
+
+        extra_hosts:
+            # Postgres runs on the host itself, not as a container. This lets the
+            # container resolve host.docker.internal on Linux too (Docker Desktop
+            # provides it out of the box). Set PG_HOST=host.docker.internal in the
+            # .env that sits next to this file — that host is the one value that
+            # genuinely differs between a native run and a containerised one.
+            - "host.docker.internal:host-gateway"
 
         # Let in-flight sends and the Chromium renderer finish before SIGKILL.
         stop_grace_period: 30s

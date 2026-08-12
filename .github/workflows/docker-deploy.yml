@@ -1,0 +1,103 @@
+name: Build, push & deploy (docker)
+
+# The image carries the API, its workers and the built SPA. Postgres is NOT part
+# of it — it runs on the host and the container reaches it through the docker
+# gateway (see extra_hosts in docker-compose.yml).
+#
+# docker-compose.yml is committed here, but the copy the server runs is its own
+# artifact at DEPLOY_COMPOSE_FILE: it sits next to the server's .env, whose
+# PG_HOST is host.docker.internal rather than the 127.0.0.1 used for native dev.
+# Nothing in this workflow writes that file — deploy only pulls and restarts.
+on:
+    push:
+        branches:
+            - master
+    workflow_dispatch:
+
+env:
+    IMAGE: ghcr.io/syedamirali/server-panel
+    DEPLOY_COMPOSE_FILE: /srv/projects/server-panel/docker-compose.yml
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to GHCR
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            # One mutable tag by design — every build overwrites :latest and there
+            # are no version tags to maintain. The gha cache matters more than
+            # usual here: the build downloads Chromium for the PDF renderer.
+            - name: Build and push
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  push: true
+                  tags: ${{ env.IMAGE }}:latest
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+    deploy:
+        needs: build-and-push
+        runs-on: ubuntu-latest
+        steps:
+            - name: Pull image on server & restart
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.SSH_HOST }}
+                  username: ${{ secrets.SSH_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  port: ${{ secrets.SSH_PORT || '22' }}
+                  script: |
+                      set -e
+                      IMAGE="${{ env.IMAGE }}:latest"
+                      COMPOSE_FILE="${{ env.DEPLOY_COMPOSE_FILE }}"
+
+                      # 1. authenticate to the registry
+                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+                      # 2. pull the freshly built image (GHCR blob storage
+                      #    occasionally returns transient 503s, so retry
+                      #    before failing the deploy)
+                      for i in 1 2 3 4 5; do
+                        if docker pull "$IMAGE"; then
+                          break
+                        fi
+                        if [ "$i" -eq 5 ]; then
+                          echo "docker pull failed after 5 attempts"
+                          exit 1
+                        fi
+                        echo "docker pull failed (attempt $i/5), retrying in $((i * 10))s..."
+                        sleep $((i * 10))
+                      done
+
+                      # 3. recreate the running container from the server's compose
+                      #    file. The image is already local, so this never builds.
+                      docker compose -f "$COMPOSE_FILE" up -d
+
+                      # 4. migrations are NOT run automatically — the same reason
+                      #    there is no entrypoint script: schema changes stay a
+                      #    deliberate act. Run them yourself when a deploy needs
+                      #    them, or uncomment the line below to make it automatic.
+                      # docker compose -f "$COMPOSE_FILE" exec -T app yarn migrate:deploy
+
+                      # 5. clean up the now-dangling previous image layers
+                      docker image prune -f
+
+                      # 6. log out
+                      docker logout ghcr.io
