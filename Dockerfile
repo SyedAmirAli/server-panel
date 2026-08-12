@@ -3,15 +3,17 @@
 # ─── Build ────────────────────────────────────────────────────────
 FROM node:24-bookworm-slim AS build
 
-# Prisma's query/migration engines link against OpenSSL.
+# openssl: Prisma's query/migration engines link against it.
+# unzip: @puppeteer/browsers shells out to it to extract the browser archive; the
+#        slim image has no zip archiver at all, so the download fails on extract.
 RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends openssl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Puppeteer downloads its pinned Chromium here instead of $HOME, so the runtime
-# stage can pick it up with one COPY. The PDF renderer needs it at run time.
+# Puppeteer puts the browser here instead of $HOME, so the runtime stage can pick
+# it up with one COPY. The PDF renderer needs it at run time.
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 # Manifests first: this layer is only invalidated when a dependency changes.
@@ -19,7 +21,23 @@ COPY package.json yarn.lock turbo.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
-RUN yarn install --frozen-lockfile
+
+# The browser download is skipped here on purpose and done in its own layer
+# below: it is ~150 MB from Google's CDN and a timeout on it must not throw away
+# several minutes of package fetching. The yarn cache mount makes a retry cheap.
+RUN --mount=type=cache,target=/yarn-cache \
+    YARN_CACHE_FOLDER=/yarn-cache PUPPETEER_SKIP_DOWNLOAD=true \
+    yarn install --frozen-lockfile
+
+# Only `chrome` — puppeteer.launch({ headless: true }) uses the full browser;
+# chrome-headless-shell is for headless: "shell" and is not worth downloading.
+# Retried because this is the one step that depends on a slow external CDN.
+RUN for attempt in 1 2 3 4 5; do \
+        echo "==> puppeteer browsers install chrome (attempt ${attempt}/5)"; \
+        npx --no-install puppeteer browsers install chrome && exit 0; \
+        sleep 15; \
+    done; \
+    echo "ERROR: could not download Chromium after 5 attempts" >&2; exit 1
 
 COPY packages/shared packages/shared
 COPY apps/api apps/api
@@ -29,7 +47,7 @@ COPY docs docs
 
 # Placeholder only. `turbo build` runs `prisma generate`, which wants the
 # datasource variable to resolve; nothing here ever connects, and the value is
-# discarded with this stage. The real URL arrives at run time from the env files.
+# discarded with this stage. The real URL arrives at run time from .env.
 ENV DATABASE_URL=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?schema=public
 
 # Same-origin SPA: VITE_API_BASE_URL defaults to empty in the web app.
@@ -73,8 +91,10 @@ RUN apt-get update -y \
 WORKDIR /app
 
 # Image-level facts only. Every piece of application configuration — database,
-# secrets, SMTP, AI gateway — comes from the env files wired up in
-# docker-compose.yml, so that nothing sensitive is ever baked into a layer.
+# secrets, SMTP, AI gateway — arrives at run time from the repo's single .env
+# (compose passes it as env_file), so nothing sensitive is baked into a layer.
+# NODE_ENV lives here rather than in .env: it is a property of this image, and a
+# file that can silently flip the app into production mode is a footgun.
 ENV NODE_ENV=production \
     PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 

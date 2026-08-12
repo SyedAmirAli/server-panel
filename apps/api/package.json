@@ -9,11 +9,11 @@
         "start:prod": "NODE_ENV=production node dist/main.js",
         "lint": "eslint \"src/**/*.ts\"",
         "typecheck": "tsc --noEmit",
-        "db:generate": "prisma generate",
-        "db:push": "prisma db push",
-        "db:pull": "prisma db pull",
-        "migrate:dev": "prisma migrate dev",
-        "migrate:deploy": "prisma migrate deploy"
+        "db:generate": "cd ../.. && prisma generate --schema apps/api/prisma/schema.prisma",
+        "db:push": "cd ../.. && prisma db push --schema apps/api/prisma/schema.prisma",
+        "db:pull": "cd ../.. && prisma db pull --schema apps/api/prisma/schema.prisma",
+        "migrate:dev": "cd ../.. && prisma migrate dev --schema apps/api/prisma/schema.prisma",
+        "migrate:deploy": "cd ../.. && prisma migrate deploy --schema apps/api/prisma/schema.prisma"
     },
     "dependencies": {
         "@appszone/shared": "*",

@@ -36,8 +36,13 @@ See `.claude/plan/appszone-mail-platform.md` for the full plan and `docs/` for A
 - **Queue:** in-app (no RabbitMQ/Redis). DB-backed outbox planned.
 
 ## Dev
+- **One `.env`, at the repo root** — API, web, and docker all read it. The API resolves
+  it from `app.module.ts` (`join(__dirname, "../../../.env")`, so cwd does not matter),
+  Vite via `envDir`, and compose via `env_file`. The Prisma scripts `cd ../..` first so
+  the CLI finds it too. There is no `apps/api/.env`; do not reintroduce one. `NODE_ENV`
+  is deliberately absent from it (set by `start:prod` and the Dockerfile).
 - PostgreSQL runs natively (role `appszone`, db `apz_mailserver`); the password is in
-  `apps/api/.env` as `PG_PASSWORD`. There is **no shadow database** — deliberately, since
+  `.env` as `PG_PASSWORD`. There is **no shadow database** — deliberately, since
   the offline migrate workflow below does not need one.
 - Postgres compares strings **case-sensitively** where MySQL did not: use
   `mode: "insensitive"` on any `contains`/`equals` over human-entered text.

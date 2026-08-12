@@ -22,10 +22,10 @@ The database is **external** (Postgres running natively on the host).
 
 ### Configuration
 
-Compose hands the container two files, in order — `.env`, then `apps/api/.env` on
-top of it (the same file the API reads natively, and the superset: AI gateway, Job
-Finder, R2). Nothing is duplicated in `docker-compose.yml` and no configuration is
-baked into the image, so an `.env` edit plus a restart is the whole change:
+Compose hands the container the repo's single root `.env` — the very same file the
+API and the SPA read when run natively. Nothing is duplicated in
+`docker-compose.yml` and no configuration is baked into the image, so an `.env`
+edit plus a restart is the whole change:
 
 ```bash
 yarn docker:up   # docker compose up -d
@@ -38,18 +38,42 @@ docker compose config
 ```
 
 The service uses `network_mode: host`, so `127.0.0.1` means the same thing inside
-the container as outside and the env files work unchanged for native and
+the container as outside and the one `.env` works unchanged for native and
 containerised runs. The API binds `API_HOST:API_PORT` directly on the host — with
 host networking there are no published ports to map. To run on a bridge network
 instead, see the commented alternative in `docker-compose.yml`.
 
 ### Build and run
 
+The image is named `ghcr.io/syedamirali/server-panel:latest` in `docker-compose.yml`,
+so the build tags it for GitHub Container Registry directly — no separate
+`docker tag` step. The path is lowercase because Docker rejects uppercase in an
+image reference; GHCR resolves it to the same package as `github.com/SyedAmirAli`.
+
+There is **one tag, `latest`**, by design — every build overwrites it and every push
+replaces it in the registry. No version tags to maintain.
+
 ```bash
-yarn docker:build   # docker compose build
+yarn docker:build   # docker compose build (tags ghcr.io/syedamirali/server-panel:latest)
 yarn docker:up      # start detached
 yarn docker:logs    # follow logs
 yarn docker:down    # stop and remove
+```
+
+Release, from this machine (one-time auth:
+`gh auth refresh -s write:packages,read:packages` then
+`gh auth token | docker login ghcr.io -u SyedAmirAli --password-stdin`):
+
+```bash
+yarn docker:release    # build + push :latest
+```
+
+On the server — a plain `up -d` will keep running the old image, because the tag
+name did not change. Pull first:
+
+```bash
+yarn docker:redeploy   # docker compose pull && docker compose up -d
+docker image prune -f  # optional: drop the <none> images the new build orphaned
 ```
 
 ### Migrations
@@ -65,7 +89,7 @@ yarn docker:db:push      # prisma db push (dev/rescue only)
 ### Notes
 
 - Secrets (`JWT_SECRET`, `ENCRYPTION_KEY`, `API_KEY_PEPPER`, `ADMIN_PASSWORD`,
-  SMTP and R2 credentials) live only in the env files, never in a layer. Rotate
+  SMTP and R2 credentials) live only in `.env`, never in a layer. Rotate
   the committed development values before exposing the service publicly.
 - URL-encode special characters in database passwords (e.g. `@` → `%40`).
 - The image ships headless Chromium for the AI Studio PDF renderer; the container
@@ -77,12 +101,11 @@ yarn docker:db:push      # prisma db push (dev/rescue only)
 # 1. install (yarn workspaces)
 yarn install
 
-# 2. env
-cp .env.example apps/api/.env
-cp .env.example apps/web/.env   # VITE_API_BASE_URL is the only var web reads
+# 2. env — ONE file at the repo root, shared by api, web and docker
+cp .env.example .env
 
-# 3. database (native MySQL on the host, or any reachable instance)
-#    configure DATABASE_URL in apps/api/.env
+# 3. database (native PostgreSQL on the host, or any reachable instance)
+#    configure PG_* / DATABASE_URL in .env
 
 # 4. build (shared + prisma generate + api + web) — or run dev steps below
 yarn build
@@ -117,7 +140,7 @@ paths (`VITE_API_BASE_URL` empty) and CORS isn't needed for it.
 yarn install
 
 # 2. env (required before build/run)
-cp .env.example apps/api/.env
+cp .env.example .env
 # edit DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, etc.
 
 # 3. build everything (shared → prisma generate → api + web)
@@ -126,7 +149,7 @@ yarn build
 #   @appszone/api      prisma generate + nest build
 #   @appszone/web      tsc + vite build → apps/web/dist
 
-# 4. apply database migrations (needs a running MySQL)
+# 4. apply database migrations (needs a running PostgreSQL)
 yarn migrate:deploy
 
 # 5. start the API (serves /api/v1 + static SPA from apps/web/dist)
@@ -156,21 +179,6 @@ CREATE DATABASE test_toast CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CRE
 ```sql
 CREATE DATABASE mail_appszonemail_shadow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; ALTER USER 'mail_appszonemail'@'localhost' IDENTIFIED BY 'Siyamcse@30'; ALTER USER 'mail_appszonemail'@'%' IDENTIFIED BY 'Siyamcse@30'; GRANT ALL PRIVILEGES ON mail_appszonemail_shadow.* TO 'mail_appszonemail'@'localhost'; GRANT ALL PRIVILEGES ON mail_appszonemail_shadow.* TO 'mail_appszonemail'@'%'; FLUSH PRIVILEGES;
 ```
-
-docker rm -f appszone-mail-server 2>/dev/null || true
-
-docker run --name appszone-mail-server \
- --restart unless-stopped \
- -p 4010:4010 \
- -e DATABASE_URL="mysql://root:12345678@localhost:3306/apz_mailserver" \
- appszone-mail-server
-
-docker run --name appszone-mail-server \
- --restart unless-stopped \
- -p 4010:4010 \
- -e DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail" \
- -e SHADOW_DATABASE_URL="mysql://appszone:12345678@localhost:3306/appszone_mail_shadow" \
- appszone-mail-server
 
 ```sql
 CREATE DATABASE IF NOT EXISTS appszone_lms

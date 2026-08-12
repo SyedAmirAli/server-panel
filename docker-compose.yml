@@ -1,41 +1,42 @@
-# The container is configured entirely by the .env files below — no variable is
-# repeated here, so editing an .env is the only step needed to change runtime
-# config. `docker compose config` prints the resolved values if you want to check
-# what the container will actually see.
+# The container is configured entirely by the repo's single .env — the same file
+# the API and the SPA read — so no variable is repeated here and editing that one
+# file is the only step needed to change runtime config. `docker compose config`
+# prints the resolved values if you want to check what the container will see.
 services:
     app:
         build:
             context: .
             dockerfile: Dockerfile
 
-        image: appszone-mail-server:latest
-        container_name: appszone-mail-server
+        # Registry path must be lowercase — Docker rejects "SyedAmirAli" in a
+        # reference. GHCR treats the owner segment case-insensitively, so this
+        # resolves to the same package as github.com/SyedAmirAli.
+        # `docker compose build` tags it directly; `yarn docker:push` publishes it.
+        image: ghcr.io/syedamirali/server-panel:latest
+        container_name: server-panel
         restart: unless-stopped
 
         # PID 1 signal handling and zombie reaping. This is what replaced the
         # old docker-entrypoint.sh; the container now just runs the server.
         init: true
 
-        # Read in order, later wins. apps/api/.env is last because it is the file
-        # the API reads when run natively, and it is the superset (AI gateway,
-        # Job Finder, R2). Values may reference ${VARS} defined in the root .env.
+        # The one and only env file. Compose expands ${VAR} references inside it
+        # (DATABASE_URL is built from PG_*) before handing the values over.
         env_file:
             - path: .env
               required: true
-            - path: apps/api/.env
-              required: false
 
-        # Postgres runs natively on this host and the env files point at
-        # 127.0.0.1. Sharing the host network namespace makes that address mean
-        # the same thing inside the container as outside, so the same .env works
-        # for both native and containerised runs. The API binds API_HOST:API_PORT
-        # directly on the host — with this mode `ports:` does not apply.
+        # Postgres runs natively on this host and .env points at 127.0.0.1.
+        # Sharing the host network namespace makes that address mean the same
+        # thing inside the container as outside, which is what lets one file
+        # serve both native and containerised runs. The API binds
+        # API_HOST:API_PORT directly on the host — `ports:` does not apply here.
         #
         # For a bridge network instead (isolated, published ports), swap the line
         # below for:
         #     ports: ["4010:4010"]
         #     extra_hosts: ["host.docker.internal:host-gateway"]
-        # and change PG_HOST/DATABASE_URL in the env files to host.docker.internal.
+        # and point PG_HOST in .env at host.docker.internal.
         network_mode: host
 
         # Let in-flight sends and the Chromium renderer finish before SIGKILL.

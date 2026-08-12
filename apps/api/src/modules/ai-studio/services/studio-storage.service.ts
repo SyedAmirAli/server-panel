@@ -68,7 +68,7 @@ export class StudioStorageService implements OnModuleInit {
         const resolved = await this.resolveBucket();
         if (!resolved) {
             throw new ServiceUnavailableException(
-                "AI Studio storage is not configured — set the CLOUDFLARE_* variables in apps/api/.env."
+                "AI Studio storage is not configured — set the CLOUDFLARE_* variables in .env."
             );
         }
         return resolved;

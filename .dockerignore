@@ -7,12 +7,13 @@ node_modules
 **/.turbo
 *.log
 
-# Never bake configuration into a layer — compose mounts these at run time.
+# Never bake configuration into a layer — compose passes the single root .env to
+# the container at run time. The extra patterns are belt-and-braces against a
+# stray per-app env file reappearing.
 .env
 .env.*
-!.env.example
-apps/api/.env
-apps/web/.env
+**/.env
+**/.env.*
 .mailserver.env
 
 # Agent/editor/tooling state, not build inputs.
