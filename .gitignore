@@ -25,7 +25,7 @@ apps/api/prisma/*.db
 
 # mailcow data (if checked out under repo)
 mailcow-dockerized/
-*.lock
+# *.lock
 *.zip
 *.tar
 *.tar.gz
