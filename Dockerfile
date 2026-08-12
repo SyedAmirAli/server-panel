@@ -56,6 +56,13 @@ RUN yarn build
 # ─── Production image ─────────────────────────────────────────────
 FROM node:24-bookworm-slim AS production
 
+# Links the GHCR package to this repository, which is what lets a workflow's
+# GITHUB_TOKEN push to it. Without the label the package is user-scoped only and
+# CI pushes fail with "denied: permission_denied".
+LABEL org.opencontainers.image.source="https://github.com/SyedAmirAli/server-panel"
+LABEL org.opencontainers.image.description="AppsZone Mail — API, workers and admin SPA in one container"
+LABEL org.opencontainers.image.licenses="UNLICENSED"
+
 # openssl for Prisma; the rest are the shared libraries Chromium needs to start
 # (the AI Studio resume renderer prints through headless Chromium).
 RUN apt-get update -y \
