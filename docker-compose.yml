@@ -1,25 +1,53 @@
+# The container is configured entirely by the .env files below — no variable is
+# repeated here, so editing an .env is the only step needed to change runtime
+# config. `docker compose config` prints the resolved values if you want to check
+# what the container will actually see.
 services:
     app:
         build:
             context: .
             dockerfile: Dockerfile
 
-        image: appszone-mail-server
+        image: appszone-mail-server:latest
         container_name: appszone-mail-server
         restart: unless-stopped
 
-        ports:
-            - "4010:4010"
+        # PID 1 signal handling and zombie reaping. This is what replaced the
+        # old docker-entrypoint.sh; the container now just runs the server.
+        init: true
 
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
+        # Read in order, later wins. apps/api/.env is last because it is the file
+        # the API reads when run natively, and it is the superset (AI gateway,
+        # Job Finder, R2). Values may reference ${VARS} defined in the root .env.
+        env_file:
+            - path: .env
+              required: true
+            - path: apps/api/.env
+              required: false
 
-        environment:
-            # Postgres runs natively on the host; the container reaches it through
-            # the host-gateway alias declared in extra_hosts above.
-            PG_HOST: host.docker.internal
-            PG_PORT: 5432
-            PG_DATABASE: apz_mailserver
-            PG_USER: appszone
-            PG_PASSWORD: utJZOjarOFTsDuMs2Vo0SvpSasbU
-            DATABASE_URL: "postgresql://appszone:utJZOjarOFTsDuMs2Vo0SvpSasbU@host.docker.internal:5432/apz_mailserver?schema=public"
+        # Postgres runs natively on this host and the env files point at
+        # 127.0.0.1. Sharing the host network namespace makes that address mean
+        # the same thing inside the container as outside, so the same .env works
+        # for both native and containerised runs. The API binds API_HOST:API_PORT
+        # directly on the host — with this mode `ports:` does not apply.
+        #
+        # For a bridge network instead (isolated, published ports), swap the line
+        # below for:
+        #     ports: ["4010:4010"]
+        #     extra_hosts: ["host.docker.internal:host-gateway"]
+        # and change PG_HOST/DATABASE_URL in the env files to host.docker.internal.
+        network_mode: host
+
+        # Let in-flight sends and the Chromium renderer finish before SIGKILL.
+        stop_grace_period: 30s
+
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "5"
+
+        # The Job Finder resume importer reads RESUME_SOURCE_PATH from disk.
+        # Mount it read-only at the same path if you use that feature:
+        # volumes:
+        #     - /home/syedamirali/Desktop/Development/my-projects/resume:/home/syedamirali/Desktop/Development/my-projects/resume:ro

@@ -22,6 +22,8 @@ import { Modal } from "@/components/ui/Modal";
 import { RowMenu, type RowMenuItem } from "@/components/ui/RowMenu";
 import { StarRating, VerdictBadge } from "@/components/jobs/StarRating";
 import { jobsApi, type PostingRow, type PostingsPage } from "@/lib/jobs";
+import { studioApi } from "@/lib/studio";
+import { peopleApi } from "@/lib/people";
 import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 import { ApiError } from "@/lib/api";
 
@@ -55,6 +57,39 @@ export function FoundJobs() {
     const [importOpen, setImportOpen] = useState(false);
     const [importUrl, setImportUrl] = useState("");
     const [importing, setImporting] = useState(false);
+
+    /**
+     * Applying opens a Studio conversation about this job rather than a form.
+     *
+     * An existing thread for the same posting is reused — clicking Apply twice
+     * should return you to the conversation you already started, not scatter
+     * duplicates through the history.
+     */
+    const applyToPosting = useCallback(
+        async (posting: PostingRow) => {
+            setBusyId(posting.id);
+            try {
+                const existing = (await studioApi.listConversations()).find((c) => c.posting?.id === posting.id);
+                if (existing) {
+                    navigate(`/studio/${existing.id}?jobId=${posting.id}`);
+                    return;
+                }
+                // Attach the default candidate so the thread starts in tailoring
+                // mode instead of asking who it is for.
+                const people = await peopleApi.list({ limit: 1 }).catch(() => null);
+                const created = await studioApi.createConversation({
+                    profileId: people?.data[0]?.id,
+                    postingId: posting.id,
+                });
+                navigate(`/studio/${created.id}?jobId=${posting.id}`);
+            } catch (err) {
+                toastError(err instanceof Error ? err.message : "Could not open a conversation for this job");
+            } finally {
+                setBusyId(null);
+            }
+        },
+        [navigate]
+    );
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -272,6 +307,7 @@ export function FoundJobs() {
                                         posting={posting}
                                         busy={busyId === posting.id}
                                         onOpen={() => navigate(`/jobs/${posting.id}`)}
+                                        onApply={() => void applyToPosting(posting)}
                                         onShortlist={() => void setStatusFor(posting, "shortlisted", "shortlisted")}
                                         onDismiss={() => void setStatusFor(posting, "dismissed", "dismissed")}
                                         onRescore={() => void rescore(posting)}
@@ -350,6 +386,7 @@ function JobRow({
     posting,
     busy,
     onOpen,
+    onApply,
     onShortlist,
     onDismiss,
     onRescore,
@@ -358,6 +395,7 @@ function JobRow({
     posting: PostingRow;
     busy: boolean;
     onOpen: () => void;
+    onApply: () => void;
     onShortlist: () => void;
     onDismiss: () => void;
     onRescore: () => void;
@@ -414,7 +452,8 @@ function JobRow({
                 <div className="flex items-center gap-1.5">
                     <button
                         type="button"
-                        onClick={onOpen}
+                        onClick={onApply}
+                        title="Open a Studio conversation about this job"
                         className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
                     >
                         <Send size={12} /> Apply

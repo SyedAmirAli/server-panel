@@ -9,65 +9,67 @@ for the full plan and phasing.
 ## Monorepo
 
 ```
-apps/api/        NestJS API + in-app workers (Prisma + MySQL)
+apps/api/        NestJS API + in-app workers (Prisma + PostgreSQL)
 apps/web/        Vite + React + TS static SPA (Tailwind v4, React Router v6)
-packages/shared/ Shared Zod schemas + TypeScript types
-docker-compose.yml  Production app container (external MySQL)
+packages/shared/ Shared TypeScript types + constants
+docker-compose.yml  Production app container (external PostgreSQL)
 ```
 
-## Docker (external database)
+## Docker
 
-The image uses an **external MySQL** database. Pass `DATABASE_URL` at runtime, or set
-`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT`, and `MYSQL_DATABASE` and the
-entrypoint will build the URL for you.
+One image: the API, its in-app workers, and the built SPA, served on `API_PORT`.
+The database is **external** (Postgres running natively on the host).
 
-### Build
+### Configuration
+
+Compose hands the container two files, in order — `.env`, then `apps/api/.env` on
+top of it (the same file the API reads natively, and the superset: AI gateway, Job
+Finder, R2). Nothing is duplicated in `docker-compose.yml` and no configuration is
+baked into the image, so an `.env` edit plus a restart is the whole change:
 
 ```bash
-docker build -t appszone-mail-server .
-# or
-yarn docker:build
+yarn docker:up   # docker compose up -d
 ```
 
-### Run — remote database
+Check what the container will actually see:
 
 ```bash
-docker run -d \
-  --name appszone-mail-server \
-  --restart unless-stopped \
-  -p 4010:4010 \
-  -e DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@YOUR_DB_HOST:3306/YOUR_DATABASE" \
-  appszone-mail-server
+docker compose config
 ```
 
-### Run — database on the same host (Linux)
+The service uses `network_mode: host`, so `127.0.0.1` means the same thing inside
+the container as outside and the env files work unchanged for native and
+containerised runs. The API binds `API_HOST:API_PORT` directly on the host — with
+host networking there are no published ports to map. To run on a bridge network
+instead, see the commented alternative in `docker-compose.yml`.
 
-Containers cannot reach the host via `localhost`. Use the host gateway:
+### Build and run
 
 ```bash
-docker run -d \
-  --name appszone-mail-server \
-  --restart unless-stopped \
-  --add-host=host.docker.internal:host-gateway \
-  -p 4010:4010 \
-  -e DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@host.docker.internal:3306/YOUR_DATABASE" \
-  appszone-mail-server
+yarn docker:build   # docker compose build
+yarn docker:up      # start detached
+yarn docker:logs    # follow logs
+yarn docker:down    # stop and remove
 ```
 
-URL-encode special characters in passwords (e.g. `@` → `%40`).
+### Migrations
 
-### Compose
-
-Set `DATABASE_URL` in your shell or a `.env` file next to `docker-compose.yml`, then:
+The container has **no entrypoint script** — it starts the server and nothing
+else, so a restart never touches the schema. Apply migrations deliberately:
 
 ```bash
-export DATABASE_URL="mysql://YOUR_USER:YOUR_PASSWORD@YOUR_DB_HOST:3306/YOUR_DATABASE"
-yarn docker:up
+yarn docker:db:migrate   # prisma migrate deploy inside the container
+yarn docker:db:push      # prisma db push (dev/rescue only)
 ```
 
-Override production secrets (`JWT_SECRET`, `ENCRYPTION_KEY`, `API_KEY_PEPPER`,
-`ADMIN_PASSWORD`) via `-e` or compose `environment:` instead of relying on Dockerfile
-defaults.
+### Notes
+
+- Secrets (`JWT_SECRET`, `ENCRYPTION_KEY`, `API_KEY_PEPPER`, `ADMIN_PASSWORD`,
+  SMTP and R2 credentials) live only in the env files, never in a layer. Rotate
+  the committed development values before exposing the service publicly.
+- URL-encode special characters in database passwords (e.g. `@` → `%40`).
+- The image ships headless Chromium for the AI Studio PDF renderer; the container
+  runs as the unprivileged `node` user.
 
 ## Local dev quick start
 

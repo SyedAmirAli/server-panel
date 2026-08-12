@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ExternalLink, MessageSquarePlus, Send, Sparkles, User } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
@@ -32,6 +32,7 @@ import type { ResumeDocument } from "@appszone/shared";
 export function Studio() {
     const { conversationId } = useParams();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [conversation, setConversation] = useState<ConversationDetail | null>(null);
@@ -121,6 +122,19 @@ export function Studio() {
             }
         });
     }, [conversationId]);
+
+    // ?jobId= arrives from the Apply button in Found Jobs. Attach it once, then
+    // drop it from the URL so a refresh does not re-apply a job the user removed.
+    useEffect(() => {
+        const jobId = searchParams.get("jobId");
+        if (!jobId || !conversation || conversation.postingId === jobId) return;
+        void (async () => {
+            await attach({ postingId: jobId });
+            searchParams.delete("jobId");
+            setSearchParams(searchParams, { replace: true });
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conversation?.id, searchParams]);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -222,7 +236,10 @@ export function Studio() {
     const visible = (conversation?.messages ?? []).filter((m) => m.role !== "tool");
 
     return (
-        <div>
+        // 3rem accounts for the shell's py-6; the header takes what it needs and
+        // the panels below absorb the rest, so tall screens are not left with
+        // dead space under a fixed-height box.
+        <div className="flex flex-col lg:h-[calc(100vh-3rem)]">
             <PageHeader
                 title="AI Studio"
                 description="Talk to your data, and build resumes by asking."
@@ -237,7 +254,7 @@ export function Studio() {
                 }
             />
 
-            <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
                 <ConversationList
                     conversations={conversations}
                     activeId={conversationId}
@@ -247,7 +264,7 @@ export function Studio() {
                 />
 
                 {!conversation ? (
-                    <div className="flex h-[620px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white text-center">
+                    <div className="flex h-[520px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white text-center lg:h-full lg:min-h-0">
                         <Sparkles size={22} className="mb-2 text-gray-300" />
                         <p className="text-sm font-medium text-gray-700">No conversation open</p>
                         <p className="mb-4 max-w-xs text-sm text-gray-500">
@@ -262,7 +279,7 @@ export function Studio() {
                         </button>
                     </div>
                 ) : (
-                    <div className="flex h-[620px] flex-col rounded-xl border border-gray-200 bg-white">
+                    <div className="flex h-[560px] flex-col rounded-xl border border-gray-200 bg-white lg:h-full lg:min-h-0">
                         {/* context strip */}
                         <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-3 py-2">
                             <Badge variant="info">{conversation.mode}</Badge>

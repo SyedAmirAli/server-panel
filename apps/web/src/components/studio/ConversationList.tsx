@@ -26,7 +26,7 @@ export function ConversationList({
     const [confirmId, setConfirmId] = useState<string | null>(null);
 
     return (
-        <div className="flex h-[620px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="flex h-[320px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white lg:h-full lg:min-h-0">
             <div className="border-b border-gray-100 px-3 py-2">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Conversations {conversations.length > 0 && `(${conversations.length})`}
